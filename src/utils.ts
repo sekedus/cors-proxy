@@ -1,0 +1,88 @@
+/**
+ * Utility functions for the CORS proxy.
+ */
+
+/**
+ * Safely parse a JSON-stringified headers object.
+ * Returns null if parsing fails.
+ */
+export function parseHeaderOverrideHeader(value: string | null): Record<string, string> | null {
+	if (!value) return null;
+	try {
+		const parsed = JSON.parse(value);
+		if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+			return parsed as Record<string, string>;
+		}
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Parse `reqHeaders` or `resHeaders` query parameters.
+ * Format: `reqHeaders=header1:value1&reqHeaders=header2:value2`
+ */
+export function parseHeaderQueryParams(
+	params: string[] | undefined,
+): Record<string, string> {
+	const result: Record<string, string> = {};
+	if (!params) return result;
+	for (const param of params) {
+		const colonIdx = param.indexOf(':');
+		if (colonIdx === -1) continue;
+		const header = param.substring(0, colonIdx).trim();
+		const value = param.substring(colonIdx + 1).trim();
+		if (header) {
+			result[header] = value;
+		}
+	}
+	return result;
+}
+
+/**
+ * Get the origin of the request, checking Origin header first, then Referer.
+ */
+export function getRequestOrigin(request: Request): string | null {
+	const origin = request.headers.get('Origin');
+	if (origin) return origin;
+	const referer = request.headers.get('Referer');
+	if (referer) {
+		try {
+			const url = new URL(referer);
+			return url.origin;
+		} catch {
+			return null;
+		}
+	}
+	return null;
+}
+
+/**
+ * Check if a value is in a list (case-insensitive).
+ */
+export function isInList(list: string[], value: string): boolean {
+	return list.some((item) => item === value.toLowerCase());
+}
+
+/**
+ * Extract the hostname from a URL string.
+ */
+export function extractHostname(urlStr: string): string | null {
+	try {
+		const url = new URL(urlStr);
+		return url.hostname.toLowerCase();
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The default CORS headers applied to all proxy responses.
+ */
+export const CORS_HEADERS: Record<string, string> = {
+	'Access-Control-Allow-Origin': '*',
+	'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS',
+	'Access-Control-Allow-Headers': '*',
+	'Access-Control-Max-Age': '86400',
+};

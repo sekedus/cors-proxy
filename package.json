@@ -1,0 +1,21 @@
+{
+  "name": "cors-proxy",
+  "version": "1.0.0",
+  "description": "CORS Proxy for Cloudflare Workers",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:prod": "wrangler deploy --env production",
+    "test": "vitest",
+    "cf-typegen": "wrangler types"
+  },
+  "keywords": ["cors", "proxy", "cloudflare", "workers"],
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250703.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.0",
+    "wrangler": "^4.0.0"
+  }
+}
