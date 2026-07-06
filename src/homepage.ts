@@ -27,6 +27,7 @@ const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string) => `<!DOCTYPE html>
     width: 100%;
     box-sizing: border-box;
   }
+  .markdown-body pre,
   .markdown-body pre code {
     white-space: pre-wrap;
     word-break: break-word;
@@ -63,6 +64,11 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
     width: 100%;
     box-sizing: border-box;
   }
+  .markdown-body pre,
+  .markdown-body pre code {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
   .badge {
     display: inline-block;
     padding: 4px 12px;
@@ -72,19 +78,15 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
     margin: 2px;
   }
   .badge-dev {
-    background: var(--bgColor-attention-muted, #ddf4ff);
+    background: rgba(9,105,218,0.20);
     color: var(--fgColor-accent, #0969da);
   }
   .badge-prod {
-    background: var(--bgColor-success-muted, #dafbe1);
+    background: rgba(63,185,80,0.20);
     color: var(--fgColor-success, #1a7f37);
   }
   .config-summary {
-    background: var(--bgColor-muted, #f6f8fa);
-    border: 1px solid var(--borderColor-default, #d0d7de);
-    border-radius: 6px;
-    padding: 16px;
-    margin: 16px 0;
+    padding-top: 16px;
     font-size: 14px;
   }
   .config-summary h3 {
@@ -96,11 +98,7 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
     border-radius: 3px;
   }
   .try-it {
-    background: var(--bgColor-muted, #f6f8fa);
-    border: 1px solid var(--borderColor-default, #d0d7de);
-    border-radius: 6px;
-    padding: 16px;
-    margin: 16px 0;
+    padding-top: 16px;
   }
   .try-it input[type="url"] {
     width: 100%;
@@ -112,10 +110,15 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
     margin-bottom: 8px;
     background: var(--bgColor-default, #fff);
     color: var(--fgColor-default, #1f2328);
+    outline: none;
+  }
+  .try-it input[type="url"]:focus {
+    border-color: var(--borderColor-accent-emphasis, #0969da);
+    box-shadow: 0 0 0 3px rgba(9,105,218,0.15);
   }
   .try-it button {
     padding: 8px 16px;
-    background: var(--bgColor-success-emphasis, #2da44e);
+    background: var(--borderColor-success-emphasis, #1a7f37);
     color: #fff;
     border: none;
     border-radius: 6px;
@@ -126,19 +129,19 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
     filter: brightness(1.1);
   }
   .try-it pre {
-    margin-top: 12px;
+    margin-top: 16px;
     max-height: 400px;
     overflow: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
   }
 </style>
 </head>
 <body class="markdown-body">
   <div class="markdown-container">
     <p>
-      ${isDev ? '<span class="badge badge-dev">🐞 Dev Mode</span>' : '<span class="badge badge-prod">🔒 Production</span>'}
       <a href="/">← Back to Home</a>
+    </p>
+    <p>
+      ${isDev ? '<span class="badge badge-dev">🐞 Dev Mode</span>' : '<span class="badge badge-prod">🔒 Production</span>'}
     </p>
     <div class="config-summary">
       <h3>⚙️ Server Configuration</h3>
