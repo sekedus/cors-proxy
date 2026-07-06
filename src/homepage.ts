@@ -7,7 +7,8 @@ import type { ProxyConfig } from './config';
 
 // Client-side markdown rendering via Marked.js loaded from CDN, plus github-markdown-css.
 
-const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string, config: ProxyConfig, isDev: boolean) => `<!DOCTYPE html>
+/** Homepage template: pure rendered README */
+const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string) => `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -16,33 +17,51 @@ const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string, config: ProxyConfig, isDe
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.6.1/github-markdown.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 <style>
   body {
-    margin: 0;
     padding: 32px 16px;
-    background: #fff;
     display: flex;
     flex-direction: column;
     align-items: center;
   }
-  .markdown-body {
+  .markdown-container {
     max-width: 900px;
     width: 100%;
     box-sizing: border-box;
   }
-  .markdown-body pre {
-    background-color: #f6f8fa;
-    border-radius: 6px;
-    padding: 16px;
-    overflow: auto;
-  }
-  .markdown-body code {
-    background-color: rgba(175, 184, 193, 0.2);
-    border-radius: 3px;
-    padding: 0.2em 0.4em;
-    font-size: 85%;
-  }
   .markdown-body pre code {
-    background: none;
-    padding: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+</style>
+</head>
+<body class="markdown-body">
+<div id="readme-content" class="markdown-container"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.6/marked.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+  const readmeContent = ${JSON.stringify(readmeContent)};
+  document.getElementById('readme-content').innerHTML = marked.parse(readmeContent);
+</script>
+</body>
+</html>`;
+
+/** /test page template: config summary + try-it demo */
+const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CORS Proxy – Test</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.6.1/github-markdown.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+<style>
+  body {
+    padding: 32px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .markdown-container {
+    max-width: 900px;
+    width: 100%;
+    box-sizing: border-box;
   }
   .badge {
     display: inline-block;
@@ -53,16 +72,16 @@ const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string, config: ProxyConfig, isDe
     margin: 2px;
   }
   .badge-dev {
-    background: #ddf4ff;
-    color: #0969da;
+    background: var(--bgColor-attention-muted, #ddf4ff);
+    color: var(--fgColor-accent, #0969da);
   }
   .badge-prod {
-    background: #dafbe1;
-    color: #1a7f37;
+    background: var(--bgColor-success-muted, #dafbe1);
+    color: var(--fgColor-success, #1a7f37);
   }
   .config-summary {
-    background: #f6f8fa;
-    border: 1px solid #d0d7de;
+    background: var(--bgColor-muted, #f6f8fa);
+    border: 1px solid var(--borderColor-default, #d0d7de);
     border-radius: 6px;
     padding: 16px;
     margin: 16px 0;
@@ -72,13 +91,13 @@ const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string, config: ProxyConfig, isDe
     margin-top: 0;
   }
   .config-summary code {
-    background: rgba(175, 184, 193, 0.2);
+    background: var(--bgColor-neutral-muted, rgba(175,184,193,0.2));
     padding: 2px 6px;
     border-radius: 3px;
   }
   .try-it {
-    background: #f6f8fa;
-    border: 1px solid #d0d7de;
+    background: var(--bgColor-muted, #f6f8fa);
+    border: 1px solid var(--borderColor-default, #d0d7de);
     border-radius: 6px;
     padding: 16px;
     margin: 16px 0;
@@ -86,15 +105,17 @@ const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string, config: ProxyConfig, isDe
   .try-it input[type="url"] {
     width: 100%;
     padding: 8px 12px;
-    border: 1px solid #d0d7de;
+    border: 1px solid var(--borderColor-default, #d0d7de);
     border-radius: 6px;
     font-size: 14px;
     box-sizing: border-box;
     margin-bottom: 8px;
+    background: var(--bgColor-default, #fff);
+    color: var(--fgColor-default, #1f2328);
   }
   .try-it button {
     padding: 8px 16px;
-    background: #2da44e;
+    background: var(--bgColor-success-emphasis, #2da44e);
     color: #fff;
     border: none;
     border-radius: 6px;
@@ -102,48 +123,43 @@ const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string, config: ProxyConfig, isDe
     cursor: pointer;
   }
   .try-it button:hover {
-    background: #218838;
+    filter: brightness(1.1);
   }
   .try-it pre {
     margin-top: 12px;
     max-height: 400px;
     overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
   }
 </style>
 </head>
-<body>
-<div class="markdown-body">
-  <div id="config-badges">
-    ${isDev ? '<span class="badge badge-dev">🐞 Dev Mode</span>' : '<span class="badge badge-prod">🔒 Production</span>'}
+<body class="markdown-body">
+  <div class="markdown-container">
+    <p>
+      ${isDev ? '<span class="badge badge-dev">🐞 Dev Mode</span>' : '<span class="badge badge-prod">🔒 Production</span>'}
+      <a href="/">← Back to Home</a>
+    </p>
+    <div class="config-summary">
+      <h3>⚙️ Server Configuration</h3>
+      <ul>
+        <li><strong>allowed_site:</strong> ${config.allowedSite.length ? config.allowedSite.join(', ') : '<em>any (all origins allowed)</em>'}</li>
+        <li><strong>allowed_target:</strong> ${config.allowedTarget.length ? config.allowedTarget.join(', ') : '<em>any (all targets allowed)</em>'}</li>
+        <li><strong>blacklist_site:</strong> ${config.blacklistSite.length ? config.blacklistSite.join(', ') : '<em>none</em>'}</li>
+        <li><strong>remove_headers:</strong> ${config.removeHeaders.length ? config.removeHeaders.join(', ') : '<em>none</em>'}</li>
+        <li><strong>require_header:</strong> ${config.requireHeader.length ? config.requireHeader.join(', ') : '<em>none</em>'}</li>
+      </ul>
+    </div>
+    <div class="try-it">
+      <h3>🚀 Try It</h3>
+      <p>Enter a URL to fetch through the proxy:</p>
+      <input type="url" id="target-url" placeholder="https://api.example.com/data" value="https://httpbin.org/anything">
+      <br>
+      <button onclick="tryProxy()">Fetch via Proxy</button>
+      <pre id="try-result">Response will appear here...</pre>
+    </div>
   </div>
-  <div id="readme-content"></div>
-  <div class="config-summary">
-    <h3>⚙️ Server Configuration</h3>
-    <ul>
-      <li><strong>allowed_site:</strong> ${config.allowedSite.length ? config.allowedSite.join(', ') : '<em>any (all origins allowed)</em>'}</li>
-      <li><strong>allowed_target:</strong> ${config.allowedTarget.length ? config.allowedTarget.join(', ') : '<em>any (all targets allowed)</em>'}</li>
-      <li><strong>blacklist_site:</strong> ${config.blacklistSite.length ? config.blacklistSite.join(', ') : '<em>none</em>'}</li>
-      <li><strong>remove_headers:</strong> ${config.removeHeaders.length ? config.removeHeaders.join(', ') : '<em>none</em>'}</li>
-      <li><strong>require_header:</strong> ${config.requireHeader.length ? config.requireHeader.join(', ') : '<em>none</em>'}</li>
-    </ul>
-  </div>
-  <div class="try-it">
-    <h3>🚀 Try It</h3>
-    <p>Enter a URL to fetch through the proxy:</p>
-    <input type="url" id="target-url" placeholder="https://api.example.com/data" value="https://httpbin.org/anything">
-    <br>
-    <button onclick="tryProxy()">Fetch via Proxy</button>
-    <pre id="try-result">Response will appear here...</pre>
-  </div>
-</div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.6/marked.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
-  // Render README markdown
-  const readmeContent = ${JSON.stringify(readmeContent)};
-  document.getElementById('readme-content').innerHTML = marked.parse(readmeContent);
-
-  // Try-it demo
   async function tryProxy() {
     const target = document.getElementById('target-url').value;
     const resultEl = document.getElementById('try-result');
@@ -167,20 +183,17 @@ const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string, config: ProxyConfig, isDe
 </html>`;
 
 /**
- * Render the homepage with the README content.
+ * Render the homepage (/) — pure rendered README using github-markdown-css.
  */
 export async function renderHomepage(
 	request: Request,
-	config: ProxyConfig,
-	isDev: boolean,
+	_config: ProxyConfig,
+	_isDev: boolean,
 ): Promise<Response> {
-	// Try to load README.md from the worker's assets or embedded content
 	let readmeContent = '';
 
-	// For Cloudflare Workers, we embed the README content
-	// In development with wrangler, we can try to fetch the README
+	// Try to fetch README.md from the same origin (works with wrangler dev --assets)
 	try {
-		// Try to fetch README from the same origin (works with wrangler dev --assets)
 		const readmeUrl = new URL(request.url);
 		readmeUrl.pathname = '/README.md';
 		const readmeResp = await fetch(readmeUrl.toString());
@@ -188,7 +201,6 @@ export async function renderHomepage(
 			readmeContent = await readmeResp.text();
 		}
 	} catch {
-		// Fallback: embedded minimal README
 		readmeContent = getEmbeddedReadme();
 	}
 
@@ -196,7 +208,23 @@ export async function renderHomepage(
 		readmeContent = getEmbeddedReadme();
 	}
 
-	const html = HOMEPAGE_HTML_TEMPLATE(readmeContent, config, isDev);
+	const html = HOMEPAGE_HTML_TEMPLATE(readmeContent);
+	return new Response(html, {
+		headers: {
+			'Content-Type': 'text/html;charset=UTF-8',
+			'Access-Control-Allow-Origin': '*',
+		},
+	});
+}
+
+/**
+ * Render the /test page — config summary + try-it demo.
+ */
+export function renderTestPage(
+	_config: ProxyConfig,
+	isDev: boolean,
+): Response {
+	const html = TEST_PAGE_HTML_TEMPLATE(_config, isDev);
 	return new Response(html, {
 		headers: {
 			'Content-Type': 'text/html;charset=UTF-8',

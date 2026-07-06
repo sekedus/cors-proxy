@@ -9,9 +9,9 @@
   },
   "vars": {
     "ALLOWED_SITE": "",
-    "ALLOWED_TARGET": "",
+    "ALLOWED_TARGET": "web.archive.org",
     "BLACKLIST_SITE": "",
-    "REMOVE_HEADERS": "cookie",
+    "REMOVE_HEADERS": "",
     "REQUIRE_HEADER": ""
   }
 }

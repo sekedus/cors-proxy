@@ -20,7 +20,7 @@ import {
 	parseHeaderOverrideHeader,
 	parseHeaderQueryParams,
 } from './utils';
-import { renderHomepage } from './homepage';
+import { renderHomepage, renderTestPage } from './homepage';
 
 export default {
 	async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
@@ -31,6 +31,11 @@ export default {
 		// ----- Homepage -----
 		if (url.pathname === '/' || url.pathname === '') {
 			return handleHomepage(request, config, isDev);
+		}
+
+		// ----- Test page -----
+		if (url.pathname === '/test') {
+			return renderTestPage(config, isDev);
 		}
 
 		// ----- CORS Preflight -----
