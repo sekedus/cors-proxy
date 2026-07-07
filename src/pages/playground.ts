@@ -234,13 +234,9 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     padding: 6px 10px;
     font-size: 11px;
     font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
-    word-break: break-all;
-    white-space: pre-wrap;
-    margin-top: 8px;
+    margin-top: 16px;
     color: var(--fgColor-muted, #59636e);
-    display: none;
   }
-  .proxy-url-box.show { display: block; }
   .action-row {
     display: flex;
     gap: 8px;
@@ -316,7 +312,6 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     color: var(--fgColor-muted, #59636e);
   }
   .meta-muted { font-size: 12px; color: var(--fgColor-muted, #59636e); }
-  .no_items { display: none !important; }
   .nav-link { font-size: 14px; }
   .mt-8 { margin-top: 8px; }
   .toast {
@@ -336,6 +331,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     pointer-events: none;
   }
   .toast.show { opacity: 1; }
+  .no_items { display: none; }
 </style>
 </head>
 <body class="markdown-body">
@@ -398,10 +394,10 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
         <div class="panel">
           <h3>⚙️ Options</h3>
           <div class="options-row">
-            <label>
-              <input type="checkbox" id="dev-mode" ${isDev ? 'checked' : ''}>
+            ${isDev ? `<label>
+              <input type="checkbox" id="dev-mode">
               Dev Mode (bypass restrictions)
-            </label>
+            </label>` : ''}
             <label>
               <input type="checkbox" id="pretty-print" checked>
               Pretty-print JSON
@@ -415,13 +411,13 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
             <button class="btn-primary" onclick="sendRequest()" id="send-btn">🚀 Send Request</button>
             <div class="note">Press <kbd>Enter</kbd> in URL field to send</div>
           </div>
-          <div class="proxy-url-box" id="proxy-url-box">
+          <div class="proxy-url-box no_items" id="proxy-url-box">
             <strong>Proxy URL:</strong>
             <div id="proxy-url-display"></div>
           </div>
         </div>
 
-        <div class="config-info">
+        ${isDev ? `<div class="config-info">
           <strong>Server config:</strong>
           <ul>
             <li><code>allowed_site</code>: ${config.allowedSite.length ? config.allowedSite.join(', ') : 'any'}</li>
@@ -430,7 +426,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
             <li><code>remove_headers</code>: ${config.removeHeaders.length ? config.removeHeaders.join(', ') : 'none'}</li>
             <li><code>require_header</code>: ${config.requireHeader.length ? config.requireHeader.join(', ') : 'none'}</li>
           </ul>
-        </div>
+        </div>` : ''}
 
         <div class="panel response-panel no_items" id="response-section">
           <h3>📬 Response</h3>
@@ -497,7 +493,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
 
   document.getElementById('show-proxy-url').addEventListener('change', function() {
     if (this.checked) updateProxyUrlPreview();
-    else document.getElementById('proxy-url-box').classList.remove('show');
+    else document.getElementById('proxy-url-box').classList.add('no_items');
   });
 
   function switchTab(tabId) {
@@ -551,7 +547,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
   function buildProxyUrl() {
     const target = document.getElementById('target-url').value.trim();
     if (!target) return '';
-    const devMode = document.getElementById('dev-mode').checked;
+    const devMode = document.getElementById('dev-mode')?.checked;
     let proxyUrl = window.location.origin + '/' + target;
     const params = new URLSearchParams();
     if (devMode) params.set('dev', 'true');
@@ -572,7 +568,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     const url = buildProxyUrl();
     if (url) {
       document.getElementById('proxy-url-display').textContent = url;
-      document.getElementById('proxy-url-box').classList.add('show');
+      document.getElementById('proxy-url-box').classList.remove('no_items');
     }
   }
 
@@ -585,7 +581,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
   async function sendRequest() {
     const target = document.getElementById('target-url').value.trim();
     const method = document.getElementById('http-method').value;
-    const devMode = document.getElementById('dev-mode').checked;
+    const devMode = document.getElementById('dev-mode')?.checked;
     const prettyPrint = document.getElementById('pretty-print').checked;
     const body = document.getElementById('request-body').value;
     const sendBtn = document.getElementById('send-btn');
@@ -683,8 +679,8 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     }
   }
 
-  addReqHeader('Authorization', 'Bearer my-token');
-  addResHeader('X-Debug', 'true');
+  addReqHeader('Referer', 'https://web.archive.org/');
+  addResHeader('Content-Type', 'application/json');
 </script>
 </body>
 </html>`;

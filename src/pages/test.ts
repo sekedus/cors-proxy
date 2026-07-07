@@ -48,7 +48,7 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
     color: var(--fgColor-success, #1a7f37);
   }
   .config-summary {
-    padding-top: 16px;
+    padding: 16px 0;
     font-size: 14px;
   }
   .config-summary h3 {
@@ -58,9 +58,6 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
     background: var(--bgColor-neutral-muted, rgba(175,184,193,0.2));
     padding: 2px 6px;
     border-radius: 3px;
-  }
-  .try-it {
-    padding-top: 16px;
   }
   .try-it input[type="url"] {
     width: 100%;
@@ -95,6 +92,7 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
     max-height: 400px;
     overflow: auto;
   }
+  .no_items { display: none !important; }
 </style>
 </head>
 <body class="markdown-body">
@@ -107,7 +105,7 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
     <p>
       ${isDev ? '<span class="badge badge-dev">🐞 Dev Mode</span>' : '<span class="badge badge-prod">🔒 Production</span>'}
     </p>
-    <div class="config-summary">
+    ${isDev ? `<div class="config-summary">
       <h3>⚙️ Server Configuration</h3>
       <ul>
         <li><strong>allowed_site:</strong> ${config.allowedSite.length ? config.allowedSite.join(', ') : '<em>any (all origins allowed)</em>'}</li>
@@ -116,7 +114,7 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
         <li><strong>remove_headers:</strong> ${config.removeHeaders.length ? config.removeHeaders.join(', ') : '<em>none</em>'}</li>
         <li><strong>require_header:</strong> ${config.requireHeader.length ? config.requireHeader.join(', ') : '<em>none</em>'}</li>
       </ul>
-    </div>
+    </div>` : ''}
     <div class="try-it">
       <h3>🚀 Try It</h3>
       <p>Enter a URL to fetch through the proxy:</p>
