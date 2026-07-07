@@ -20,7 +20,9 @@ import {
 	parseHeaderOverrideHeader,
 	parseHeaderQueryParams,
 } from './utils';
-import { renderHomepage, renderTestPage } from './homepage';
+import { renderHomepage } from './pages/home';
+import { renderTestPage } from './pages/test';
+import { renderPlaygroundPage } from './pages/playground';
 
 export default {
 	async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
@@ -38,6 +40,11 @@ export default {
 			return renderTestPage(config, isDev);
 		}
 
+		// ----- Playground -----
+		if (url.pathname === '/playground') {
+			return renderPlaygroundPage(config, isDev);
+		}
+
 		// ----- CORS Preflight -----
 		if (request.method === 'OPTIONS') {
 			return handlePreflight(request, config, isDev);
@@ -51,8 +58,8 @@ export default {
 /**
  * Handle homepage requests — render the README.
  */
-async function handleHomepage(request: Request, config: ProxyConfig, isDev: boolean): Promise<Response> {
-	return renderHomepage(request, config, isDev);
+async function handleHomepage(request: Request, _config: ProxyConfig, _isDev: boolean): Promise<Response> {
+	return renderHomepage(request);
 }
 
 /**
