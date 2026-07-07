@@ -5,4 +5,5 @@ interface Env {
 	BLACKLIST_SITE?: string;
 	REMOVE_HEADERS?: string;
 	REQUIRE_HEADER?: string;
+	DEV_PARAM?: string;
 }

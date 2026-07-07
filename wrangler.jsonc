@@ -12,6 +12,7 @@
     "ALLOWED_TARGET": "web.archive.org",
     "BLACKLIST_SITE": "",
     "REMOVE_HEADERS": "",
-    "REQUIRE_HEADER": ""
+    "REQUIRE_HEADER": "",
+    "DEV_PARAM": "dev"
   }
 }

@@ -65,9 +65,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     border: 1px solid var(--borderColor-default, #d0d7de);
     border-radius: 6px;
     padding: 16px;
-    margin-bottom: 16px;
   }
-  .panel:last-child { margin-bottom: 0; }
   .panel h3 {
     margin: 0 0 12px;
     font-size: 14px;
@@ -179,7 +177,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     color: var(--fgColor-muted, #59636e);
     margin-top: 6px;
   }
-  .response-panel { margin-top: 0; }
+  .response-panel { margin-top: 16px; }
   .response-meta {
     font-size: 13px;
     margin-bottom: 8px;
@@ -395,15 +393,15 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
           <h3>⚙️ Options</h3>
           <div class="options-row">
             ${isDev ? `<label>
-              <input type="checkbox" id="dev-mode">
-              Dev Mode (bypass restrictions)
+              <input type="checkbox" id="dev-mode" checked>
+              Dev Mode (<code>?${config.devParam}=true</code>, bypass restrictions)
             </label>` : ''}
             <label>
               <input type="checkbox" id="pretty-print" checked>
               Pretty-print JSON
             </label>
             <label>
-              <input type="checkbox" id="show-proxy-url">
+              <input type="checkbox" id="show-proxy-url" checked>
               Show proxy URL
             </label>
           </div>
@@ -454,6 +452,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
   <div class="toast" id="toast"></div>
 
 <script>
+  const DEV_PARAM = '${config.devParam}';
   let reqHeaderIdx = 0, resHeaderIdx = 0;
 
   function addReqHeader(name, value) {
@@ -550,7 +549,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     const devMode = document.getElementById('dev-mode')?.checked;
     let proxyUrl = window.location.origin + '/' + target;
     const params = new URLSearchParams();
-    if (devMode) params.set('dev', 'true');
+    if (devMode) params.set(DEV_PARAM, 'true');
     const reqHeaders = collectHeaders('req-headers-container');
     const resHeaders = collectHeaders('res-headers-container');
     if (Object.keys(reqHeaders).length > 0) {
@@ -594,7 +593,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
 
     let proxyUrl = window.location.origin + '/' + target;
     const params = new URLSearchParams();
-    if (devMode) params.set('dev', 'true');
+    if (devMode) params.set(DEV_PARAM, 'true');
     const reqHeaders = collectHeaders('req-headers-container');
     const resHeaders = collectHeaders('res-headers-container');
     if (Object.keys(reqHeaders).length > 0) {

@@ -103,7 +103,7 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
       <a href="/playground">Playground</a>
     </p>
     <p>
-      ${isDev ? '<span class="badge badge-dev">🐞 Dev Mode</span>' : '<span class="badge badge-prod">🔒 Production</span>'}
+      ${isDev ? '<span class="badge badge-dev">🐞 Dev Mode (?' + config.devParam + '=)</span>' : '<span class="badge badge-prod">🔒 Production</span>'}
     </p>
     ${isDev ? `<div class="config-summary">
       <h3>⚙️ Server Configuration</h3>

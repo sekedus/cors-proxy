@@ -13,6 +13,8 @@ export interface ProxyConfig {
 	removeHeaders: string[];
 	/** Comma-separated list of header names that must be present on the client request. */
 	requireHeader: string[];
+	/** Query parameter name that activates dev mode (bypasses restrictions). Defaults to 'dev'. */
+	devParam: string;
 }
 
 /**
@@ -30,6 +32,13 @@ function parseList(value: string | undefined): string[] {
 /**
  * Build the proxy configuration from environment variables.
  */
+/**
+ * Read a plain string value from an environment variable with a default fallback.
+ */
+function readValue(value: string | undefined, defaultValue: string): string {
+	return value && value.trim().length > 0 ? value.trim() : defaultValue;
+}
+
 export function getConfig(env: Env): ProxyConfig {
 	return {
 		allowedSite: parseList(env.ALLOWED_SITE),
@@ -37,5 +46,6 @@ export function getConfig(env: Env): ProxyConfig {
 		blacklistSite: parseList(env.BLACKLIST_SITE),
 		removeHeaders: parseList(env.REMOVE_HEADERS),
 		requireHeader: parseList(env.REQUIRE_HEADER),
+		devParam: readValue(env.DEV_PARAM, 'dev'),
 	};
 }

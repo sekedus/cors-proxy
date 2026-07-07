@@ -28,7 +28,7 @@ export default {
 	async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
 		const config = getConfig(env);
 		const url = new URL(request.url);
-		const isDev = url.searchParams.has('dev');
+		const isDev = url.searchParams.has(config.devParam);
 
 		// ----- Homepage -----
 		if (url.pathname === '/' || url.pathname === '') {
