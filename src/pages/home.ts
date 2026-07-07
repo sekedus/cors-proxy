@@ -25,7 +25,7 @@ const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string) => `<!DOCTYPE html>
   }
   .markdown-body pre,
   .markdown-body pre code {
-    white-space: pre-wrap;
+    white-space: pre-line;
     word-break: break-word;
   }
   .nav-link { font-size: 14px; }

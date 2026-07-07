@@ -26,7 +26,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
   }
   .markdown-body pre,
   .markdown-body pre code {
-    white-space: pre-wrap;
+    white-space: pre-line;
     word-break: break-word;
   }
   .badge {
@@ -58,7 +58,6 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     border: 1px solid var(--borderColor-default, #d0d7de);
     border-radius: 6px;
     padding: 16px;
-    margin-bottom: 16px;
   }
   .panel h3 {
     margin: 0 0 12px;
@@ -208,8 +207,8 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
   .config-info {
     font-size: 12px;
     color: var(--fgColor-muted, #59636e);
-    margin-top: 8px;
-    padding: 8px;
+    margin-top: 16px;
+    padding: 16px;
     background: var(--bgColor-default, #fff);
     border-radius: 4px;
     border: 1px solid var(--borderColor-default, #d0d7de);
@@ -219,6 +218,9 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     padding: 1px 4px;
     border-radius: 3px;
     font-size: 11px;
+  }
+  .config-info ul {
+    margin: 10px 0 0;
   }
   .panel-subtitle {
     font-weight: 400;
@@ -303,11 +305,13 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
 
         <div class="config-info">
           <strong>Server config:</strong>
-          <code>allowed_site</code>: ${config.allowedSite.length ? config.allowedSite.join(', ') : 'any'}
-          &middot; <code>allowed_target</code>: ${config.allowedTarget.length ? config.allowedTarget.join(', ') : 'any'}
-          &middot; <code>blacklist_site</code>: ${config.blacklistSite.length ? config.blacklistSite.join(', ') : 'none'}
-          &middot; <code>remove_headers</code>: ${config.removeHeaders.length ? config.removeHeaders.join(', ') : 'none'}
-          &middot; <code>require_header</code>: ${config.requireHeader.length ? config.requireHeader.join(', ') : 'none'}
+          <ul>
+            <li><code>allowed_site</code>: ${config.allowedSite.length ? config.allowedSite.join(', ') : 'any'}</li>
+            <li><code>allowed_target</code>: ${config.allowedTarget.length ? config.allowedTarget.join(', ') : 'any'}</li>
+            <li><code>blacklist_site</code>: ${config.blacklistSite.length ? config.blacklistSite.join(', ') : 'none'}</li>
+            <li><code>remove_headers</code>: ${config.removeHeaders.length ? config.removeHeaders.join(', ') : 'none'}</li>
+            <li><code>require_header</code>: ${config.requireHeader.length ? config.requireHeader.join(', ') : 'none'}</li>
+          </ul>
         </div>
 
         <div class="panel response-panel no_items" id="response-section">
