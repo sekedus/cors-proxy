@@ -1,5 +1,5 @@
 /**
- * Embedded README content — fallback when the actual README.md can't be fetched.
+ * Embedded README content – fallback when the actual README.md can't be fetched.
  */
 export function getEmbeddedReadme(): string {
 	return `# CORS Proxy
@@ -96,10 +96,10 @@ fetch('https://your-proxy.workers.dev/https://api.example.com/data', {
 
 ### URL Schemes
 
-- \`/\` — Homepage with this documentation
-- \`/?url=<target>\` — Proxy with query param target
-- \`/<protocol>://<host>/<path>\` — Proxy with path-based target
-- \`/<host>/<path>\` — Proxy (defaults to https://)
+- \`/\` – Homepage with this documentation
+- \`/?url=<target>\` – Proxy with query param target
+- \`/<protocol>://<host>/<path>\` – Proxy with path-based target
+- \`/<host>/<path>\` – Proxy (defaults to https://)
 
 ## Deployment
 

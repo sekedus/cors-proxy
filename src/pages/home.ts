@@ -1,5 +1,5 @@
 /**
- * Homepage page — renders the README using github-markdown-css + Marked.js.
+ * Homepage page – renders the README using github-markdown-css + Marked.js.
  */
 
 import { getEmbeddedReadme } from './readme';
@@ -28,10 +28,18 @@ const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string) => `<!DOCTYPE html>
     white-space: pre-wrap;
     word-break: break-word;
   }
+  .nav-link { font-size: 14px; }
 </style>
 </head>
 <body class="markdown-body">
-<div id="readme-content" class="markdown-container"></div>
+<div class="markdown-container">
+  <p class="nav-link">
+    <a href="/test">Test</a>
+    &nbsp;|&nbsp;
+    <a href="/playground">Playground</a>
+  </p>
+  <div id="readme-content"></div>
+</div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.6/marked.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
   const readmeContent = ${JSON.stringify(readmeContent)};

@@ -1,5 +1,5 @@
 /**
- * /test page — shows server configuration and interactive try-it demo.
+ * /test page – shows server configuration and interactive try-it demo.
  */
 
 import type { ProxyConfig } from '../config';
@@ -27,6 +27,9 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
   .markdown-body pre code {
     white-space: pre-wrap;
     word-break: break-word;
+  }
+  .nav-link {
+    font-size: 14px;
   }
   .badge {
     display: inline-block;
@@ -96,8 +99,10 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
 </head>
 <body class="markdown-body">
   <div class="markdown-container">
-    <p>
+    <p class="nav-link">
       <a href="/">← Back to Home</a>
+      &nbsp;|&nbsp;
+      <a href="/playground">Playground</a>
     </p>
     <p>
       ${isDev ? '<span class="badge badge-dev">🐞 Dev Mode</span>' : '<span class="badge badge-prod">🔒 Production</span>'}
