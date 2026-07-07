@@ -1,5 +1,5 @@
 /**
- * /playground page — full interactive CORS proxy sandbox.
+ * /playground page – full interactive CORS proxy sandbox.
  * Lets you configure method, headers, body, and dev mode, then inspect the full response.
  */
 

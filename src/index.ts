@@ -253,47 +253,50 @@ async function handleProxyRequest(request: Request, config: ProxyConfig, isDev: 
 /**
  * Resolve the target URL from the request.
  * Supports:
- * - `?url=<encoded-target>` (query param)
- * - `/<protocol>/<host>/...` (path-based)
- * - `/http://...` or `/https://...` (cors-anywhere style)
+ * - `/<protocol>://<host>/<path>?<query>` (path-based, like cors-anywhere) — path is checked FIRST
+ * - `?url=<encoded-target>` (query param) — only used when path has no protocol prefix
+ * - `/<host>/<path>` — defaults to https://
  */
 function resolveTargetUrl(url: URL): string | null {
-	// 1. Check ?url parameter
-	const urlParam = url.searchParams.get('url');
-	if (urlParam) {
-		try {
-			// Decode if already encoded, or use as-is
-			const decoded = decodeURIComponent(urlParam);
-			new URL(decoded); // validate
-			return decoded;
-		} catch {
+	const path = url.pathname;
+
+	// 1. Path-based with protocol: /http://... or /https://...
+	//    Must be checked BEFORE ?url to avoid stealing query params from the target URL.
+	if (path.startsWith('/')) {
+		const candidate = path.slice(1);
+		if (candidate.startsWith('http://') || candidate.startsWith('https://')) {
 			try {
-				new URL(urlParam);
-				return urlParam;
+				// Reconstruct full target with original query string
+				const targetUrl = candidate + url.search;
+				new URL(targetUrl); // validate
+				return targetUrl;
+			} catch {
+				return null;
+			}
+		}
+		// 2. Path-based without protocol: treat as https://<path>
+		if (candidate.length > 0) {
+			const withProtocol = `https://${candidate}${url.search}`;
+			try {
+				new URL(withProtocol);
+				return withProtocol;
 			} catch {
 				return null;
 			}
 		}
 	}
 
-	// 2. Path-based: /http://... or /https://...
-	const path = url.pathname;
-	if (path.startsWith('/')) {
-		const candidate = path.slice(1);
-		if (candidate.startsWith('http://') || candidate.startsWith('https://')) {
+	// 3. Fallback: ?url parameter (only if path didn't match)
+	const urlParam = url.searchParams.get('url');
+	if (urlParam) {
+		try {
+			const decoded = decodeURIComponent(urlParam);
+			new URL(decoded);
+			return decoded;
+		} catch {
 			try {
-				new URL(candidate);
-				return candidate;
-			} catch {
-				return null;
-			}
-		}
-		// 3. Path-based without protocol: treat as http://<path>
-		if (candidate.length > 0) {
-			const withProtocol = `https://${candidate}`;
-			try {
-				new URL(withProtocol);
-				return withProtocol;
+				new URL(urlParam);
+				return urlParam;
 			} catch {
 				return null;
 			}
