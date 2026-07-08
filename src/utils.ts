@@ -60,9 +60,11 @@ export function getRequestOrigin(request: Request): string | null {
 
 /**
  * Check if a value is in a list (case-insensitive).
+ * Lowercases both the list items and the value for comparison.
  */
 export function isInList(list: string[], value: string): boolean {
-	return list.some((item) => item === value.toLowerCase());
+	const lowerVal = value.toLowerCase();
+	return list.some((item) => item.toLowerCase() === lowerVal);
 }
 
 /**

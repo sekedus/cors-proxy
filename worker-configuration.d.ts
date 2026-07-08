@@ -6,4 +6,6 @@ interface Env {
 	REMOVE_HEADERS?: string;
 	REQUIRE_HEADER?: string;
 	DEV_PARAM?: string;
+	DEV_VALUE?: string;
+	MAX_BODY_SIZE?: string;
 }

@@ -17,6 +17,11 @@ A secure, configurable CORS proxy for Cloudflare Workers.
 | \`blacklist_site\` | Comma-separated list of blacklisted origins. |
 | \`remove_headers\` | Comma-separated list of headers to remove from outbound request (e.g., \`cookie\`). |
 | \`require_header\` | Comma-separated list of headers the client must include. Prevents casual browsing. |
+| \`dev_param\` | Query parameter name that activates dev mode (bypasses all restrictions). Empty = dev mode disabled. |
+| \`dev_value\` | If set, dev mode only activates when the dev param value matches exactly. Empty = any value works. |
+| \`max_body_size\` | Maximum request body size (e.g., \`10MB\`, \`1GB\`, \`500KB\`). Larger requests are rejected with 413. Empty or \`0\` = no limit. |
+
+> **Tip:** You can use full URLs in \`allowed_site\`, \`allowed_target\`, and \`blacklist_site\` — the proxy automatically extracts the hostname. For example, \`https://web.archive.org\` is treated as \`web.archive.org\`.
 
 ### Client-Side Features
 
@@ -66,11 +71,26 @@ https://your-proxy.workers.dev/?url=https://example.com&resHeaders=x-frame-optio
 
 #### Dev Mode
 
-Add \`dev=true\` to bypass all server restrictions:
+Add \`?dev=true\` (or custom \`DEV_PARAM\`) to bypass all server restrictions:
 
 \`\`\`
 https://your-proxy.workers.dev/?url=https://api.example.com&dev=true
 \`\`\`
+
+You can also set \`DEV_VALUE\` to require an exact value — only \`?dev=<secret>\` activates dev mode.
+
+### URL Resolution Priority
+
+1. **Path-based** — If the request path has a protocol prefix (\`https://...\` or \`http://...\`), that's the target
+2. **\`?url=\` parameter** — Falls back to the \`?url=<target>\` query parameter
+3. **\`404\`** — If neither is provided, returns an error
+
+### URL Schemes
+
+- \`/\` – Homepage with this documentation
+- \`/?url=<target>\` – Proxy with query param target
+- \`/<protocol>://<host>/<path>\` – Proxy with path-based target
+- \`/<host>/<path>\` – Proxy (defaults to https://)
 
 ### Usage Examples
 
@@ -93,13 +113,6 @@ fetch('https://your-proxy.workers.dev/https://api.example.com/data', {
   }
 })
 \`\`\`
-
-### URL Schemes
-
-- \`/\` – Homepage with this documentation
-- \`/?url=<target>\` – Proxy with query param target
-- \`/<protocol>://<host>/<path>\` – Proxy with path-based target
-- \`/<host>/<path>\` – Proxy (defaults to https://)
 
 ## Deployment
 

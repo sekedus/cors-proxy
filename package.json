@@ -11,7 +11,7 @@
     "cf-typegen": "wrangler types"
   },
   "keywords": ["cors", "proxy", "cloudflare", "workers"],
-  "license": "MIT",
+  "license": "GPL-3.0",
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250703.0",
     "typescript": "^5.7.3",

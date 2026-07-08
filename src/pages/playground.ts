@@ -95,6 +95,10 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     border-color: var(--borderColor-accent-emphasis, #0969da);
     box-shadow: 0 0 0 3px rgba(9,105,218,0.15);
   }
+  .panel-disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
   .panel textarea {
     font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
     font-size: 12px;
@@ -394,7 +398,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
           <div class="options-row">
             ${isDev ? `<label>
               <input type="checkbox" id="dev-mode" checked>
-              Dev Mode (<code>?${config.devParam}=true</code>, bypass restrictions)
+              Dev Mode <code>${config.devParam}</code> (bypass restrictions)
             </label>` : ''}
             <label>
               <input type="checkbox" id="pretty-print" checked>
@@ -429,20 +433,22 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
         <div class="panel response-panel no_items" id="response-section">
           <h3>📬 Response</h3>
           <div class="response-meta" id="response-meta"></div>
-          <div class="tabs">
-            <button class="tab active" data-tab="body-tab" onclick="switchTab('body-tab')">Body</button>
-            <button class="tab" data-tab="headers-tab" onclick="switchTab('headers-tab')">Headers</button>
-          </div>
-          <div class="action-row">
-            <button class="action-btn" onclick="copyResponse()" id="copy-btn">📋 Copy</button>
-            <button class="action-btn" onclick="clearResponse()">🗑️ Clear</button>
-            <span class="meta-muted" id="response-size"></span>
-          </div>
-          <div id="body-tab" class="tab-content active">
-            <div class="response-body empty" id="response-body">(empty)</div>
-          </div>
-          <div id="headers-tab" class="tab-content">
-            <div class="response-headers no_items" id="response-headers"></div>
+          <div id="response-content" class="no_items">
+            <div class="tabs">
+              <button class="tab active" data-tab="body-tab" onclick="switchTab('body-tab')">Body</button>
+              <button class="tab" data-tab="headers-tab" onclick="switchTab('headers-tab')">Headers</button>
+            </div>
+            <div class="action-row">
+              <button class="action-btn" onclick="copyResponse()" id="copy-btn">📋 Copy</button>
+              <button class="action-btn" onclick="clearResponse()">🗑️ Clear</button>
+              <span class="meta-muted" id="response-size"></span>
+            </div>
+            <div id="body-tab" class="tab-content active">
+              <div class="response-body empty" id="response-body">(empty)</div>
+            </div>
+            <div id="headers-tab" class="tab-content">
+              <div class="response-headers no_items" id="response-headers"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -453,6 +459,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
 
 <script>
   const DEV_PARAM = '${config.devParam}';
+  const DEV_VALUE = '${config.devValue}';
   let reqHeaderIdx = 0, resHeaderIdx = 0;
 
   function addReqHeader(name, value) {
@@ -512,8 +519,15 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
   }
 
   function copyResponse() {
-    const text = document.getElementById('response-body').textContent;
-    if (!text || text === '(empty)' || text === 'Error') return;
+    const bodyTab = document.getElementById('body-tab');
+    const headersTab = document.getElementById('headers-tab');
+    let text = '';
+    if (bodyTab && bodyTab.classList.contains('active')) {
+      text = document.getElementById('response-body').textContent;
+    } else if (headersTab && headersTab.classList.contains('active')) {
+      text = document.getElementById('response-headers').textContent;
+    }
+    if (!text || text === '(empty)' || text === 'Error' || text === '') return;
     navigator.clipboard.writeText(text).then(() => {
       const btn = document.getElementById('copy-btn');
       btn.textContent = '✅ Copied!';
@@ -522,8 +536,15 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     }).catch(() => showToast('Failed to copy'));
   }
 
+  function setPanelsDisabled(disabled) {
+    document.querySelectorAll('.panel:not(.response-panel)').forEach(function(el) {
+      el.classList.toggle('panel-disabled', disabled);
+    });
+  }
+
   function clearResponse() {
     document.getElementById('response-section').classList.add('no_items');
+    document.getElementById('response-content').classList.add('no_items');
     document.getElementById('response-body').textContent = '(empty)';
     document.getElementById('response-body').classList.add('empty');
     document.getElementById('response-headers').classList.add('no_items');
@@ -549,15 +570,11 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     const devMode = document.getElementById('dev-mode')?.checked;
     let proxyUrl = window.location.origin + '/' + target;
     const params = new URLSearchParams();
-    if (devMode) params.set(DEV_PARAM, 'true');
+    if (devMode) params.set(DEV_PARAM, DEV_VALUE || 'true');
     const reqHeaders = collectHeaders('req-headers-container');
     const resHeaders = collectHeaders('res-headers-container');
-    if (Object.keys(reqHeaders).length > 0) {
-      params.set('reqHeaders', Object.entries(reqHeaders).map(([k, v]) => k + ':' + v).join('&reqHeaders='));
-    }
-    if (Object.keys(resHeaders).length > 0) {
-      params.set('resHeaders', Object.entries(resHeaders).map(([k, v]) => k + ':' + v).join('&resHeaders='));
-    }
+    Object.entries(reqHeaders).forEach(([k, v]) => params.append('reqHeaders', k + ':' + v));
+    Object.entries(resHeaders).forEach(([k, v]) => params.append('resHeaders', k + ':' + v));
     const qs = params.toString();
     if (qs) proxyUrl += (proxyUrl.includes('?') ? '&' : '?') + qs;
     return proxyUrl;
@@ -593,15 +610,11 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
 
     let proxyUrl = window.location.origin + '/' + target;
     const params = new URLSearchParams();
-    if (devMode) params.set(DEV_PARAM, 'true');
+    if (devMode) params.set(DEV_PARAM, DEV_VALUE || 'true');
     const reqHeaders = collectHeaders('req-headers-container');
     const resHeaders = collectHeaders('res-headers-container');
-    if (Object.keys(reqHeaders).length > 0) {
-      params.set('reqHeaders', Object.entries(reqHeaders).map(([k, v]) => k + ':' + v).join('&reqHeaders='));
-    }
-    if (Object.keys(resHeaders).length > 0) {
-      params.set('resHeaders', Object.entries(resHeaders).map(([k, v]) => k + ':' + v).join('&resHeaders='));
-    }
+    Object.entries(reqHeaders).forEach(([k, v]) => params.append('reqHeaders', k + ':' + v));
+    Object.entries(resHeaders).forEach(([k, v]) => params.append('resHeaders', k + ':' + v));
     const qs = params.toString();
     if (qs) proxyUrl += (proxyUrl.includes('?') ? '&' : '?') + qs;
 
@@ -614,12 +627,14 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     }
 
     responseSection.classList.remove('no_items');
+    document.getElementById('response-content').classList.add('no_items');
     responseMeta.innerHTML = '<span class="meta-muted">⏳ Sending request…</span>';
     responseBody.textContent = '';
     responseBody.classList.add('empty');
     responseSize.textContent = '';
     sendBtn.disabled = true;
     sendBtn.textContent = '⏳ Sending…';
+    setPanelsDisabled(true);
 
     try {
       const startTime = performance.now();
@@ -666,15 +681,18 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
       }
       responseBody.classList.remove('empty');
       switchTab('body-tab');
+      document.getElementById('response-content').classList.remove('no_items');
     } catch (err) {
       responseMeta.innerHTML = '<span class="status-badge status-4xx">Network Error</span>';
       responseBody.textContent = 'Error: ' + err.message + '\\n\\nMake sure the target URL is valid and the proxy can reach it.';
       responseBody.classList.remove('empty');
       document.getElementById('response-headers').classList.add('no_items');
       responseSize.textContent = '';
+      document.getElementById('response-content').classList.remove('no_items');
     } finally {
       sendBtn.disabled = false;
       sendBtn.textContent = '🚀 Send Request';
+      setPanelsDisabled(false);
     }
   }
 
@@ -696,6 +714,7 @@ export function renderPlaygroundPage(
 		headers: {
 			'Content-Type': 'text/html;charset=UTF-8',
 			'Access-Control-Allow-Origin': '*',
+			'Content-Security-Policy': "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; style-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; connect-src 'self'; img-src 'self' data: https:; font-src 'self' data:;",
 		},
 	});
 }

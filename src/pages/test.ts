@@ -87,6 +87,11 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
   .try-it button:hover {
     filter: brightness(1.1);
   }
+  .try-it button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    filter: none;
+  }
   .try-it pre {
     margin-top: 16px;
     max-height: 400px;
@@ -103,7 +108,7 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
       <a href="/playground">Playground</a>
     </p>
     <p>
-      ${isDev ? '<span class="badge badge-dev">🐞 Dev Mode (?' + config.devParam + '=)</span>' : '<span class="badge badge-prod">🔒 Production</span>'}
+      ${isDev ? '<span class="badge badge-dev">🐞 Dev Mode (' + config.devParam + ')</span>' : '<span class="badge badge-prod">🔒 Production</span>'}
     </p>
     ${isDev ? `<div class="config-summary">
       <h3>⚙️ Server Configuration</h3>
@@ -125,13 +130,30 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
     </div>
   </div>
 <script>
+  const DEV_PARAM = '${config.devParam}';
+  const DEV_VALUE = '${config.devValue}';
+
   async function tryProxy() {
-    const target = document.getElementById('target-url').value;
+    const targetInput = document.getElementById('target-url');
+    const target = targetInput.value;
     const resultEl = document.getElementById('try-result');
     if (!target) { resultEl.textContent = 'Please enter a URL'; return; }
+
+    targetInput.disabled = true;
+    const btn = document.querySelector('.try-it button');
+    btn.disabled = true;
     resultEl.textContent = 'Fetching...';
+
     try {
-      const proxyUrl = window.location.origin + '/' + target;
+      let proxyUrl = window.location.origin + '/' + target;
+      // Forward dev mode if the current page URL has the dev param
+      if (DEV_PARAM) {
+        const currentParams = new URL(window.location.href).searchParams;
+        const devValue = currentParams.get(DEV_PARAM);
+        if (devValue !== null) {
+          proxyUrl += (proxyUrl.includes('?') ? '&' : '?') + DEV_PARAM + '=' + encodeURIComponent(devValue);
+        }
+      }
       const res = await fetch(proxyUrl);
       const text = await res.text();
       try {
@@ -141,6 +163,9 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
       }
     } catch (err) {
       resultEl.textContent = 'Error: ' + err.message;
+    } finally {
+      targetInput.disabled = false;
+      btn.disabled = false;
     }
   }
 </script>
@@ -159,6 +184,7 @@ export function renderTestPage(
 		headers: {
 			'Content-Type': 'text/html;charset=UTF-8',
 			'Access-Control-Allow-Origin': '*',
+			'Content-Security-Policy': "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; style-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; connect-src 'self'; img-src 'self' data: https:; font-src 'self' data:;",
 		},
 	});
 }

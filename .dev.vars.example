@@ -1,0 +1,14 @@
+# Local development environment variables for the CORS proxy.
+# Copy this file to .dev.vars and fill in your values.
+# This file is committed as a reference; .dev.vars is gitignored.
+# For production, set these as plain text env vars in the Cloudflare dashboard
+# (Settings → Variables and Secrets → Add → select type "Text") → Deploy.
+# Learn more: https://developers.cloudflare.com/workers/configuration/environment-variables/#add-environment-variables-via-the-dashboard
+
+ALLOWED_SITE=
+ALLOWED_TARGET=
+BLACKLIST_SITE=
+REMOVE_HEADERS=
+REQUIRE_HEADER=
+DEV_PARAM=
+DEV_VALUE=

@@ -28,11 +28,18 @@ export default {
 	async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
 		const config = getConfig(env);
 		const url = new URL(request.url);
-		const isDev = url.searchParams.has(config.devParam);
+		// Dev mode activation:
+		//   DEV_PARAM set & DEV_VALUE set   → ?dev=secret          				(exact match)
+		//   DEV_PARAM set & DEV_VALUE unset  → ?dev={any non-null value} or ?dev   (param present)
+		//   DEV_PARAM unset                  → always production
+		const isDev = config.devParam !== ''
+			&& (config.devValue !== ''
+				? url.searchParams.get(config.devParam) === config.devValue
+				: url.searchParams.get(config.devParam) !== null);
 
 		// ----- Homepage -----
 		if (url.pathname === '/' || url.pathname === '') {
-			return handleHomepage(request, config, isDev);
+			return renderHomepage();
 		}
 
 		// ----- Test page -----
@@ -56,23 +63,35 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 /**
- * Handle homepage requests — render the README.
- */
-async function handleHomepage(request: Request, _config: ProxyConfig, _isDev: boolean): Promise<Response> {
-	return renderHomepage(request);
-}
-
-/**
  * Handle CORS preflight (OPTIONS) requests.
+ * Applies same origin/target restrictions as the proxy handler.
  */
-function handlePreflight(request: Request, _config: ProxyConfig, isDev: boolean): Response {
+export function handlePreflight(request: Request, config: ProxyConfig, isDev: boolean): Response {
 	const origin = getRequestOrigin(request);
+
+	// Access control (same as the proxy handler)
+	if (!isDev) {
+		// allowed_site / blacklist_site checks
+		if (origin) {
+			const originHost = extractHostname(origin);
+			if (originHost) {
+				if (config.allowedSite.length > 0 && !isInList(config.allowedSite, originHost)) {
+					return new Response(null, { status: 204 });
+				}
+				if (isInList(config.blacklistSite, originHost)) {
+					return new Response(null, { status: 204 });
+				}
+			}
+		}
+	}
 
 	// Build CORS headers for preflight
 	const headers = new Headers();
 
-	// Access-Control-Allow-Origin
-	if (origin) {
+	if (isDev) {
+		// Dev mode: allow any origin
+		headers.set('Access-Control-Allow-Origin', '*');
+	} else if (origin) {
 		headers.set('Access-Control-Allow-Origin', origin);
 		headers.append('Vary', 'Origin');
 	} else {
@@ -89,10 +108,6 @@ function handlePreflight(request: Request, _config: ProxyConfig, isDev: boolean)
 		headers.set('Access-Control-Allow-Headers', '*');
 	}
 
-	if (isDev) {
-		headers.set('Access-Control-Allow-Origin', '*');
-	}
-
 	return new Response(null, { status: 204, headers });
 }
 
@@ -104,7 +119,7 @@ function handlePreflight(request: Request, _config: ProxyConfig, isDev: boolean)
  * - Header override via `x-corsproxy-headers` (JSON) or `x-corsproxy-res-headers` (JSON)
  * - Query param override via `reqHeaders` & `resHeaders`
  */
-async function handleProxyRequest(request: Request, config: ProxyConfig, isDev: boolean): Promise<Response> {
+export async function handleProxyRequest(request: Request, config: ProxyConfig, isDev: boolean): Promise<Response> {
 	const url = new URL(request.url);
 
 	// ---- Resolve target URL ----
@@ -129,6 +144,31 @@ async function handleProxyRequest(request: Request, config: ProxyConfig, isDev: 
 		});
 	}
 
+	// ---- Body size limit ----
+	// Check via Content-Length header (fast path)
+	let bodyBuffer: ArrayBuffer | null = null;
+	if (config.maxBodySize > 0) {
+		const contentLength = request.headers.get('Content-Length');
+		if (contentLength) {
+			const size = parseInt(contentLength, 10);
+			if (!isNaN(size) && size > config.maxBodySize) {
+				return new Response(JSON.stringify({ error: 'Request body exceeds maximum allowed size' }), {
+					status: 413,
+					headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+				});
+			}
+		} else if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
+			// No Content-Length (e.g. Transfer-Encoding: chunked) — read body to verify size
+			bodyBuffer = await request.arrayBuffer();
+			if (bodyBuffer.byteLength > config.maxBodySize) {
+				return new Response(JSON.stringify({ error: 'Request body exceeds maximum allowed size' }), {
+					status: 413,
+					headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+				});
+			}
+		}
+	}
+
 	// ---- Access control ----
 	if (!isDev) {
 		const origin = getRequestOrigin(request);
@@ -137,7 +177,7 @@ async function handleProxyRequest(request: Request, config: ProxyConfig, isDev: 
 		if (config.allowedSite.length > 0 && origin) {
 			const originHost = extractHostname(origin);
 			if (!originHost || !isInList(config.allowedSite, originHost)) {
-				return new Response(JSON.stringify({ error: 'Origin not allowed' }), {
+				return new Response(JSON.stringify({ error: 'Origin is not allowed' }), {
 					status: 403,
 					headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
 				});
@@ -158,7 +198,7 @@ async function handleProxyRequest(request: Request, config: ProxyConfig, isDev: 
 		// allowed_target: if list is non-empty, target must be in it
 		if (config.allowedTarget.length > 0) {
 			if (!isInList(config.allowedTarget, targetHost)) {
-				return new Response(JSON.stringify({ error: 'Target not allowed' }), {
+				return new Response(JSON.stringify({ error: 'Target is not allowed' }), {
 					status: 403,
 					headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
 				});
@@ -203,8 +243,12 @@ async function handleProxyRequest(request: Request, config: ProxyConfig, isDev: 
 	const effectiveResHeaders = { ...resHeadersFromQuery, ...(resHeadersOverride ?? {}) };
 
 	// ---- Build the proxied request ----
+	// Capture the client's origin for CORS response headers before buildProxyRequest
+	// overwrites the outbound Origin header with the target's origin. This prevents
+	// triggering CORS on the target side while still reflecting the client's origin
+	// in our CORS response.
 	const originUrl = getRequestOrigin(request);
-	const proxyRequest = buildProxyRequest(request, targetUrl, config, effectiveReqHeaders);
+	const proxyRequest = buildProxyRequest(request, targetUrl, config, effectiveReqHeaders, bodyBuffer);
 
 	// ---- Fetch the target ----
 	let response: Response;
@@ -257,7 +301,7 @@ async function handleProxyRequest(request: Request, config: ProxyConfig, isDev: 
  * - `?url=<encoded-target>` (query param) — only used when path has no protocol prefix
  * - `/<host>/<path>` — defaults to https://
  */
-function resolveTargetUrl(url: URL): string | null {
+export function resolveTargetUrl(url: URL): string | null {
 	const path = url.pathname;
 
 	// 1. Path-based with protocol: /http://... or /https://...
@@ -276,6 +320,11 @@ function resolveTargetUrl(url: URL): string | null {
 		}
 		// 2. Path-based without protocol: treat as https://<path>
 		if (candidate.length > 0) {
+			// Require a dot, colon (port), or the host to be 'localhost' to avoid
+			// treating arbitrary paths (e.g. /not-a-host) as target hostnames.
+			if (!candidate.includes('.') && !candidate.includes(':') && candidate !== 'localhost') {
+				return null;
+			}
 			const withProtocol = `https://${candidate}${url.search}`;
 			try {
 				new URL(withProtocol);
@@ -309,20 +358,22 @@ function resolveTargetUrl(url: URL): string | null {
 /**
  * Build the request to send to the target, applying header removals and overrides.
  */
-function buildProxyRequest(
+export function buildProxyRequest(
 	originalRequest: Request,
 	targetUrl: string,
 	config: ProxyConfig,
 	reqHeadersOverride: Record<string, string>,
+	bodyBuffer?: ArrayBuffer | null,
 ): Request {
 	// Clone the request to make headers mutable
-	const requestInit: RequestInit = {
+	const hasBody = originalRequest.method !== 'GET' && originalRequest.method !== 'HEAD';
+	const requestInit: RequestInit & { duplex?: string } = {
 		method: originalRequest.method,
 		headers: new Headers(originalRequest.headers),
-		body: originalRequest.method !== 'GET' && originalRequest.method !== 'HEAD'
-			? originalRequest.body
-			: undefined,
+		body: hasBody ? (bodyBuffer ?? originalRequest.body) : undefined,
 		redirect: 'follow',
+		// Required by Node.js when body is a ReadableStream, harmless in workerd
+		duplex: hasBody ? 'half' : undefined,
 	};
 
 	// Remove unwanted headers from the outbound request

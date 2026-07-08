@@ -49,33 +49,17 @@ const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string) => `<!DOCTYPE html>
 </html>`;
 
 /**
- * Render the homepage (/).
+ * Render the homepage (/) using embedded README content.
+ * Avoids a self-fetch loop by using the bundled fallback directly.
  */
-export async function renderHomepage(
-	request: Request,
-): Promise<Response> {
-	let readmeContent = '';
-
-	try {
-		const readmeUrl = new URL(request.url);
-		readmeUrl.pathname = '/README.md';
-		const readmeResp = await fetch(readmeUrl.toString());
-		if (readmeResp.ok) {
-			readmeContent = await readmeResp.text();
-		}
-	} catch {
-		readmeContent = getEmbeddedReadme();
-	}
-
-	if (!readmeContent) {
-		readmeContent = getEmbeddedReadme();
-	}
-
+export function renderHomepage(): Response {
+	const readmeContent = getEmbeddedReadme();
 	const html = HOMEPAGE_HTML_TEMPLATE(readmeContent);
 	return new Response(html, {
 		headers: {
 			'Content-Type': 'text/html;charset=UTF-8',
 			'Access-Control-Allow-Origin': '*',
+			'Content-Security-Policy': "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; style-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; connect-src 'self'; img-src 'self' data: https:; font-src 'self' data:;",
 		},
 	});
 }
