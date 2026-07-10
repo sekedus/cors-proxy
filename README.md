@@ -7,6 +7,40 @@ A CORS proxy that runs on [Cloudflare Workers](https://workers.cloudflare.com/).
 
 <br/>
 
+<details>
+<summary><strong>📑 Table of Contents</strong></summary>
+
+<br/>
+
+- [What Is a CORS Proxy?](#-what-is-a-cors-proxy)
+- [Quick Start](#-quick-start)
+  - [Option A: Deploy Button](#option-a-deploy-button)
+  - [Option B: Via the Cloudflare Dashboard](#option-b-via-the-cloudflare-dashboard)
+  - [Option C: From Your Local PC](#option-c-from-your-local-pc)
+  - [Configure Your Proxy](#configure-your-proxy-optional--all-methods)
+- [How to Use the Proxy](#-how-to-use-the-proxy)
+  - [URL Formats](#url-formats)
+  - [Common Use Cases](#common-use-cases)
+  - [Using from a Local HTML File](#using-from-a-local-html-file)
+- [How the Proxy Processes Your Request](#%EF%B8%8F-how-the-proxy-processes-your-request)
+- [Interactive Pages](#-interactive-pages)
+- [Development](#%EF%B8%8F-development)
+  - [Run Locally](#run-locally)
+  - [Start the Dev Server](#start-the-dev-server)
+  - [Run Tests](#run-tests)
+- [Configuration Reference](#-configuration-reference)
+  - [Text Variables](#text-variables)
+  - [Safe Minimum Configuration](#-safe-minimum-configuration-production)
+  - [Dev Mode](#dev-mode)
+- [Troubleshooting](#-troubleshooting)
+- [Cloudflare-Specific Notes](#%EF%B8%8F-cloudflare-specific-notes)
+- [References](#-references)
+- [License](#license)
+
+</details>
+
+<br/>
+
 ## 🤔 What Is a CORS Proxy?
 
 Web browsers block JavaScript from making requests to a different domain unless that domain sends special **CORS headers**. Many public APIs don't send these headers.

@@ -5,9 +5,43 @@ export function getEmbeddedReadme(): string {
 	return `# CORS Proxy
 
 <picture>![GitHub repo size](https://img.shields.io/github/repo-size/sekedus/cors-proxy?label=Size)</picture>
-[![GitHub License](https://img.shields.io/github/license/sekedus/cors-proxy?label=License)](./LICENSE)
+[![GitHub License](https://img.shields.io/github/license/sekedus/cors-proxy?label=License)](https://github.com/sekedus/cors-proxy/blob/main/LICENSE)
 
 A CORS proxy that runs on [Cloudflare Workers](https://workers.cloudflare.com/). It lets your frontend code make HTTP requests to any API, even when that API doesn't send CORS headers.
+
+<br/>
+
+<details>
+<summary><strong>📑 Table of Contents</strong></summary>
+
+<br/>
+
+- [What Is a CORS Proxy?](#-what-is-a-cors-proxy)
+- [Quick Start](#-quick-start)
+  - [Option A: Deploy Button](#option-a-deploy-button)
+  - [Option B: Via the Cloudflare Dashboard](#option-b-via-the-cloudflare-dashboard)
+  - [Option C: From Your Local PC](#option-c-from-your-local-pc)
+  - [Configure Your Proxy](#configure-your-proxy-optional--all-methods)
+- [How to Use the Proxy](#-how-to-use-the-proxy)
+  - [URL Formats](#url-formats)
+  - [Common Use Cases](#common-use-cases)
+  - [Using from a Local HTML File](#using-from-a-local-html-file)
+- [How the Proxy Processes Your Request](#%EF%B8%8F-how-the-proxy-processes-your-request)
+- [Interactive Pages](#-interactive-pages)
+- [Development](#%EF%B8%8F-development)
+  - [Run Locally](#run-locally)
+  - [Start the Dev Server](#start-the-dev-server)
+  - [Run Tests](#run-tests)
+- [Configuration Reference](#-configuration-reference)
+  - [Text Variables](#text-variables)
+  - [Safe Minimum Configuration](#-safe-minimum-configuration-production)
+  - [Dev Mode](#dev-mode)
+- [Troubleshooting](#-troubleshooting)
+- [Cloudflare-Specific Notes](#%EF%B8%8F-cloudflare-specific-notes)
+- [References](#-references)
+- [License](#license)
+
+</details>
 
 <br/>
 
@@ -313,7 +347,7 @@ Your proxy comes with built-in web pages:
 
 > [!IMPORTANT]  
 > **About the homepage:**  
-> The \`/\` page renders its content from [src/pages/readme.ts](./src/pages/readme.ts), not from this \`README.md\` file directly.  
+> The \`/\` page renders its content from [src/pages/readme.ts](https://github.com/sekedus/cors-proxy/blob/main/src/pages/readme.ts), not from this \`README.md\` file directly.  
 > If you update this README, remember to also update the embedded version in \`src/pages/readme.ts\` so the homepage stays in sync.
 
 <br/>
@@ -484,7 +518,7 @@ https://cors-proxy.<your-subdomain>.workers.dev/?url=https://api.example.com&adm
 > Both \`DEV_PARAM\` and \`DEV_VALUE\` are **case-sensitive** – \`?debug=let_me_in\` won't activate if you set \`DEV_PARAM=Debug\` or pass \`?DEBUG=let_me_in\`.
 
 > [!TIP]  
-> [Playground](./src/pages/playground.ts) & [test](./src/pages/test.ts) page automatically forward the dev parameter from the page URL to proxy requests.  
+> [Playground](https://github.com/sekedus/cors-proxy/blob/main/src/pages/playground.ts) & [test](https://github.com/sekedus/cors-proxy/blob/main/src/pages/test.ts) page automatically forward the dev parameter from the page URL to proxy requests.  
 > You only need to add \`?dev=let_me_in\` once in your browser.
 
 <br/>
@@ -541,6 +575,6 @@ https://cors-proxy.<your-subdomain>.workers.dev/?url=https://api.example.com&adm
 
 ## License
 
-[GNU General Public License v3.0](./LICENSE)
+[GNU General Public License v3.0](https://github.com/sekedus/cors-proxy/blob/main/LICENSE)
 `;
 }
