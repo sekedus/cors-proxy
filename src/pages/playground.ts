@@ -3,6 +3,7 @@
  * Lets you configure method, headers, body, and dev mode, then inspect the full response.
  */
 
+import { CSP_HEADER } from '../utils';
 import type { ProxyConfig } from '../config';
 
 const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCTYPE html>
@@ -458,8 +459,9 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
   <div class="toast" id="toast"></div>
 
 <script>
-  const DEV_PARAM = '${config.devParam}';
+  ${isDev ? `const DEV_PARAM = '${config.devParam}';
   const DEV_VALUE = '${config.devValue}';
+  ` : ''}
   let reqHeaderIdx = 0, resHeaderIdx = 0;
 
   function addReqHeader(name, value) {
@@ -570,7 +572,8 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     const devMode = document.getElementById('dev-mode')?.checked;
     let proxyUrl = window.location.origin + '/' + target;
     const params = new URLSearchParams();
-    if (devMode) params.set(DEV_PARAM, DEV_VALUE || 'true');
+    ${isDev ? `if (devMode) params.set(DEV_PARAM, DEV_VALUE || 'true');
+    ` : ''}
     const reqHeaders = collectHeaders('req-headers-container');
     const resHeaders = collectHeaders('res-headers-container');
     Object.entries(reqHeaders).forEach(([k, v]) => params.append('reqHeaders', k + ':' + v));
@@ -610,7 +613,8 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
 
     let proxyUrl = window.location.origin + '/' + target;
     const params = new URLSearchParams();
-    if (devMode) params.set(DEV_PARAM, DEV_VALUE || 'true');
+    ${isDev ? `if (devMode) params.set(DEV_PARAM, DEV_VALUE || 'true');
+    ` : ''}
     const reqHeaders = collectHeaders('req-headers-container');
     const resHeaders = collectHeaders('res-headers-container');
     Object.entries(reqHeaders).forEach(([k, v]) => params.append('reqHeaders', k + ':' + v));
@@ -714,7 +718,7 @@ export function renderPlaygroundPage(
 		headers: {
 			'Content-Type': 'text/html;charset=UTF-8',
 			'Access-Control-Allow-Origin': '*',
-			'Content-Security-Policy': "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; style-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; connect-src 'self'; img-src 'self' data: https:; font-src 'self' data:;",
+			'Content-Security-Policy': CSP_HEADER,
 		},
 	});
 }

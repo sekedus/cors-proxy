@@ -10,12 +10,20 @@
     "test": "vitest",
     "cf-typegen": "wrangler types"
   },
-  "keywords": ["cors", "proxy", "cloudflare", "workers"],
+  "keywords": [
+    "cors",
+    "proxy",
+    "cloudflare",
+    "workers"
+  ],
   "license": "GPL-3.0",
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250703.0",
     "typescript": "^5.7.3",
     "vitest": "^3.0.0",
     "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "tldts": "^7.4.7"
   }
 }

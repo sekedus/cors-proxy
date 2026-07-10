@@ -2,6 +2,8 @@
  * Configuration parsing utilities for the CORS proxy.
  */
 
+import { getDomain } from 'tldts';
+
 export interface ProxyConfig {
 	/** Comma-separated list of allowed origins (Origin header). Empty = allow all. */
 	allowedSite: string[];
@@ -35,11 +37,28 @@ function parseList(value: string | undefined): string[] {
 
 /**
  * Parse a comma-separated list of hostnames.
- * If an entry looks like a URL (contains ://), extract just the hostname.
+ * If an entry looks like a URL (contains://), extract just the hostname.
  * This lets users write "https://example.com" instead of just "example.com".
+ * Wildcard entries like "*.example.com" are preserved as-is.
+ * Wildcards targeting a public suffix (e.g. "*.com", "*.co.uk") are rejected
+ * because they would match too many unrelated domains.
  */
 function parseHostnames(value: string | undefined): string[] {
-	return parseList(value).map((entry) => {
+	return parseList(value).filter((entry) => {
+		if (entry.startsWith('*.')) {
+			const suffix = entry.slice(2); // strip "*."
+				// Reject if the suffix is a public suffix (e.g. "com", "co.uk", "org").
+			// getDomain() returns null for public suffixes and the registrable domain otherwise.
+			if (!suffix || getDomain(suffix) === null) {
+				return false;
+			}
+			return true;
+		}
+		return true;
+	}).map((entry) => {
+		if (entry.startsWith('*.')) {
+			return entry;
+		}
 		if (entry.includes('://')) {
 			try {
 				return new URL(entry).hostname;
@@ -58,9 +77,6 @@ function readValue(value: string | undefined, defaultValue: string): string {
 	return value && value.trim().length > 0 ? value.trim() : defaultValue;
 }
 
-/**
- * Build the proxy configuration from environment variables.
- */
 /**
  * Parse a size string like "10MB", "1GB", "500KB" into a byte count.
  * Returns 0 for empty/unset input. Returns 0 silently for unrecognized formats.
@@ -81,13 +97,27 @@ function parseByteSize(value: string | undefined): number {
 	}
 }
 
+/**
+ * Build the proxy configuration from environment variables.
+ */
 export function getConfig(env: Env): ProxyConfig {
+	const allowedSite = parseHostnames(env.ALLOWED_SITE);
+	const blacklistSite = parseHostnames(env.BLACKLIST_SITE);
+	let requireHeader = parseList(env.REQUIRE_HEADER);
+
+	// When ALLOWED_SITE or BLACKLIST_SITE is configured, Origin must be required –
+	// otherwise requests without an Origin header would bypass the access control check.
+	const needsOrigin = allowedSite.length > 0 || blacklistSite.length > 0;
+	if (needsOrigin && !requireHeader.some((h) => h.toLowerCase() === 'origin')) {
+		requireHeader = ['Origin', ...requireHeader];
+	}
+
 	return {
-		allowedSite: parseHostnames(env.ALLOWED_SITE),
+		allowedSite,
 		allowedTarget: parseHostnames(env.ALLOWED_TARGET),
-		blacklistSite: parseHostnames(env.BLACKLIST_SITE),
+		blacklistSite,
 		removeHeaders: parseList(env.REMOVE_HEADERS),
-		requireHeader: parseList(env.REQUIRE_HEADER),
+		requireHeader,
 		devParam: readValue(env.DEV_PARAM, ''),
 		devValue: readValue(env.DEV_VALUE, ''),
 		maxBodySize: parseByteSize(env.MAX_BODY_SIZE),

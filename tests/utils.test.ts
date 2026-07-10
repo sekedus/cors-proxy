@@ -114,6 +114,65 @@ describe('isInList', () => {
 		expect(isInList(['a.com', 'b.com', 'c.com'], 'b.com')).toBe(true);
 		expect(isInList(['a.com', 'b.com', 'c.com'], 'd.com')).toBe(false);
 	});
+
+	// --- Wildcard subdomain matching ---
+
+	it('wildcard matches subdomain', () => {
+		expect(isInList(['*.example.com'], 'sub.example.com')).toBe(true);
+	});
+
+	it('wildcard matches deep subdomain', () => {
+		expect(isInList(['*.example.com'], 'deep.sub.example.com')).toBe(true);
+	});
+
+	it('wildcard does NOT match the bare domain', () => {
+		expect(isInList(['*.example.com'], 'example.com')).toBe(false);
+	});
+
+	it('wildcard does NOT match unrelated domain', () => {
+		expect(isInList(['*.example.com'], 'other.com')).toBe(false);
+	});
+
+	it('wildcard does NOT match partial suffix', () => {
+		expect(isInList(['*.example.com'], 'badexample.com')).toBe(false);
+	});
+
+	it('wildcard is case-insensitive', () => {
+		expect(isInList(['*.Example.COM'], 'sub.example.com')).toBe(true);
+		expect(isInList(['*.example.com'], 'SUB.EXAMPLE.COM')).toBe(true);
+	});
+
+	it('wildcard works alongside exact entries', () => {
+		const list = ['example.com', '*.example.com'];
+		expect(isInList(list, 'example.com')).toBe(true);
+		expect(isInList(list, 'sub.example.com')).toBe(true);
+		expect(isInList(list, 'other.com')).toBe(false);
+	});
+
+	it('wildcard with multiple dots works', () => {
+		expect(isInList(['*.api.example.com'], 'v1.api.example.com')).toBe(true);
+		expect(isInList(['*.api.example.com'], 'api.example.com')).toBe(false);
+		expect(isInList(['*.api.example.com'], 'example.com')).toBe(false);
+	});
+
+	// --- PSL safety: wildcards targeting public suffixes are rejected ---
+
+	it('rejects wildcard targeting TLD (.com)', () => {
+		expect(isInList(['*.com'], 'anything.com')).toBe(false);
+	});
+
+	it('rejects wildcard targeting multi-part public suffix (.co.uk)', () => {
+		expect(isInList(['*.co.uk'], 'sub.co.uk')).toBe(false);
+	});
+
+	it('rejects wildcard targeting bare dot (*.)', () => {
+		expect(isInList(['*.'], 'a.')).toBe(false);
+	});
+
+	it('allows wildcard targeting registrable domain under public suffix', () => {
+		// "myapp.co.uk" is registrable (psl.get("myapp.co.uk") returns "myapp.co.uk")
+		expect(isInList(['*.myapp.co.uk'], 'sub.myapp.co.uk')).toBe(true);
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -152,33 +211,9 @@ describe('getRequestOrigin', () => {
 		expect(getRequestOrigin(req)).toBe('https://example.com');
 	});
 
-	it('falls back to Referer when no Origin', () => {
-		const req = new Request('https://proxy.test/', {
-			headers: { Referer: 'https://example.com/page' },
-		});
-		expect(getRequestOrigin(req)).toBe('https://example.com');
-	});
-
-	it('returns null when neither Origin nor Referer are present', () => {
+	it('returns null when no Origin header is present', () => {
 		const req = new Request('https://proxy.test/');
 		expect(getRequestOrigin(req)).toBeNull();
-	});
-
-	it('returns null when Referer is not a valid URL', () => {
-		const req = new Request('https://proxy.test/', {
-			headers: { Referer: 'not-a-url' },
-		});
-		expect(getRequestOrigin(req)).toBeNull();
-	});
-
-	it('Origin header takes precedence over Referer', () => {
-		const req = new Request('https://proxy.test/', {
-			headers: {
-				Origin: 'https://origin-wins.com',
-				Referer: 'https://referer-loses.com/page',
-			},
-		});
-		expect(getRequestOrigin(req)).toBe('https://origin-wins.com');
 	});
 
 	it('returns null for empty Origin header', () => {
@@ -188,10 +223,10 @@ describe('getRequestOrigin', () => {
 		expect(getRequestOrigin(req)).toBeNull();
 	});
 
-	it('extracts origin from Referer with port', () => {
+	it('ignores Referer (only Origin header is used)', () => {
 		const req = new Request('https://proxy.test/', {
-			headers: { Referer: 'https://example.com:8080/page' },
+			headers: { Referer: 'https://example.com/page' },
 		});
-		expect(getRequestOrigin(req)).toBe('https://example.com:8080');
+		expect(getRequestOrigin(req)).toBeNull();
 	});
 });

@@ -29,7 +29,7 @@ export default {
 		const config = getConfig(env);
 		const url = new URL(request.url);
 		// Dev mode activation:
-		//   DEV_PARAM set & DEV_VALUE set   → ?dev=secret          				(exact match)
+		//   DEV_PARAM set & DEV_VALUE set    → ?dev=secret          				(exact match)
 		//   DEV_PARAM set & DEV_VALUE unset  → ?dev={any non-null value} or ?dev   (param present)
 		//   DEV_PARAM unset                  → always production
 		const isDev = config.devParam !== ''
@@ -67,19 +67,65 @@ export default {
  * Applies same origin/target restrictions as the proxy handler.
  */
 export function handlePreflight(request: Request, config: ProxyConfig, isDev: boolean): Response {
-	const origin = getRequestOrigin(request);
+	const originUrl = getRequestOrigin(request);
 
-	// Access control (same as the proxy handler)
+	// Helper to build a JSON error response with CORS headers for preflight failures.
+	// Unlike the main handler, preflight responses must include CORS headers so the
+	// browser can read the error body. Without them the browser silently blocks the
+	// request with a generic CORS error, making debugging impossible.
+	function preflightError(status: number, error: string): Response {
+		const headers = new Headers({
+			'Content-Type': 'application/json',
+			'Access-Control-Allow-Methods': CORS_HEADERS['Access-Control-Allow-Methods'],
+			'Access-Control-Allow-Headers': '*',
+			'Access-Control-Max-Age': CORS_HEADERS['Access-Control-Max-Age'],
+		});
+		if (originUrl) {
+			headers.set('Access-Control-Allow-Origin', originUrl);
+			headers.append('Vary', 'Origin');
+		} else {
+			headers.set('Access-Control-Allow-Origin', '*');
+		}
+		return new Response(JSON.stringify({ error }), { status, headers });
+	}
+
 	if (!isDev) {
 		// allowed_site / blacklist_site checks
-		if (origin) {
-			const originHost = extractHostname(origin);
+		if (originUrl) {
+			const originHost = extractHostname(originUrl);
 			if (originHost) {
 				if (config.allowedSite.length > 0 && !isInList(config.allowedSite, originHost)) {
-					return new Response(null, { status: 204 });
+					return preflightError(403, 'Origin is not allowed');
 				}
 				if (isInList(config.blacklistSite, originHost)) {
-					return new Response(null, { status: 204 });
+					return preflightError(403, 'Origin is blacklisted');
+				}
+			} else if (config.allowedSite.length > 0) {
+				// Origin is present but not a valid hostname (e.g. "null" from sandboxed iframe).
+				// Block when allowed_site is configured since it can't match any entry.
+				return preflightError(403, 'Origin is not allowed');
+			}
+		}
+
+		// allowed_target: if list is non-empty, target must be in it
+		const url = new URL(request.url);
+		const targetUrl = resolveTargetUrl(url);
+		if (targetUrl) {
+			try {
+				const targetHost = new URL(targetUrl).hostname.toLowerCase();
+				if (config.allowedTarget.length > 0 && !isInList(config.allowedTarget, targetHost)) {
+					return preflightError(403, 'Target is not allowed');
+				}
+			} catch {
+				// Invalid target URL – will be caught by the main handler
+			}
+		}
+
+		// require_header: client must include these headers
+		if (config.requireHeader.length > 0) {
+			for (const header of config.requireHeader) {
+				if (!request.headers.get(header)) {
+					return preflightError(400, `Missing required header: ${header}`);
 				}
 			}
 		}
@@ -91,8 +137,8 @@ export function handlePreflight(request: Request, config: ProxyConfig, isDev: bo
 	if (isDev) {
 		// Dev mode: allow any origin
 		headers.set('Access-Control-Allow-Origin', '*');
-	} else if (origin) {
-		headers.set('Access-Control-Allow-Origin', origin);
+	} else if (originUrl) {
+		headers.set('Access-Control-Allow-Origin', originUrl);
 		headers.append('Vary', 'Origin');
 	} else {
 		headers.set('Access-Control-Allow-Origin', '*');
@@ -136,7 +182,17 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 
 	let targetHost: string | null;
 	try {
-		targetHost = new URL(targetUrl).hostname.toLowerCase();
+		const parsed = new URL(targetUrl);
+		// Cloudflare Workers' fetch() only supports HTTP and HTTPS.
+		// Reject other protocols early rather than letting fetch() fail with a cryptic error.
+		// See https://developers.cloudflare.com/workers/reference/protocols/
+		if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+			return new Response(JSON.stringify({ error: 'Invalid target URL' }), {
+				status: 400,
+				headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+			});
+		}
+		targetHost = parsed.hostname.toLowerCase();
 	} catch {
 		return new Response(JSON.stringify({ error: 'Invalid target URL' }), {
 			status: 400,
@@ -145,7 +201,9 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 	}
 
 	// ---- Body size limit ----
-	// Check via Content-Length header (fast path)
+	// Check via Content-Length header (fast path – early rejection without reading body).
+	// Always read the body afterward to verify the actual size, since Content-Length
+	// can be falsified (e.g. small Content-Length with large chunked body).
 	let bodyBuffer: ArrayBuffer | null = null;
 	if (config.maxBodySize > 0) {
 		const contentLength = request.headers.get('Content-Length');
@@ -157,8 +215,9 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 					headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
 				});
 			}
-		} else if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
-			// No Content-Length (e.g. Transfer-Encoding: chunked) — read body to verify size
+		}
+		if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
+			// Read body to verify actual size (catches chunked encoding bypass)
 			bodyBuffer = await request.arrayBuffer();
 			if (bodyBuffer.byteLength > config.maxBodySize) {
 				return new Response(JSON.stringify({ error: 'Request body exceeds maximum allowed size' }), {
@@ -170,12 +229,13 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 	}
 
 	// ---- Access control ----
-	if (!isDev) {
-		const origin = getRequestOrigin(request);
+	// Capture the client's origin once and reuse it for both access control and CORS response headers.
+	const originUrl = getRequestOrigin(request);
 
+	if (!isDev) {
 		// allowed_site: if list is non-empty, origin must be in it
-		if (config.allowedSite.length > 0 && origin) {
-			const originHost = extractHostname(origin);
+		if (config.allowedSite.length > 0 && originUrl) {
+			const originHost = extractHostname(originUrl);
 			if (!originHost || !isInList(config.allowedSite, originHost)) {
 				return new Response(JSON.stringify({ error: 'Origin is not allowed' }), {
 					status: 403,
@@ -185,8 +245,8 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 		}
 
 		// blacklist_site: if origin is blacklisted, block
-		if (origin) {
-			const originHost = extractHostname(origin);
+		if (config.blacklistSite.length > 0 && originUrl) {
+			const originHost = extractHostname(originUrl);
 			if (originHost && isInList(config.blacklistSite, originHost)) {
 				return new Response(JSON.stringify({ error: 'Origin is blacklisted' }), {
 					status: 403,
@@ -243,11 +303,6 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 	const effectiveResHeaders = { ...resHeadersFromQuery, ...(resHeadersOverride ?? {}) };
 
 	// ---- Build the proxied request ----
-	// Capture the client's origin for CORS response headers before buildProxyRequest
-	// overwrites the outbound Origin header with the target's origin. This prevents
-	// triggering CORS on the target side while still reflecting the client's origin
-	// in our CORS response.
-	const originUrl = getRequestOrigin(request);
 	const proxyRequest = buildProxyRequest(request, targetUrl, config, effectiveReqHeaders, bodyBuffer);
 
 	// ---- Fetch the target ----
@@ -268,7 +323,12 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 	response = new Response(response.body, response);
 
 	// Apply response header overrides
+	// Set-Cookie is blocked to prevent cross-user cookie injection in shared proxy deployments.
+	const blockedResHeaders = new Set(['set-cookie']);
 	for (const [header, value] of Object.entries(effectiveResHeaders)) {
+		if (blockedResHeaders.has(header.toLowerCase())) {
+			continue;
+		}
 		if (value === '') {
 			response.headers.delete(header);
 		} else {
@@ -277,7 +337,9 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 	}
 
 	// Set CORS headers
-	if (originUrl) {
+	if (isDev) {
+		response.headers.set('Access-Control-Allow-Origin', '*');
+	} else if (originUrl) {
 		response.headers.set('Access-Control-Allow-Origin', originUrl);
 		response.headers.append('Vary', 'Origin');
 	} else {
@@ -287,19 +349,15 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 	response.headers.set('Access-Control-Allow-Methods', CORS_HEADERS['Access-Control-Allow-Methods']);
 	response.headers.set('Access-Control-Allow-Headers', '*');
 
-	if (isDev) {
-		response.headers.set('Access-Control-Allow-Origin', '*');
-	}
-
 	return response;
 }
 
 /**
  * Resolve the target URL from the request.
  * Supports:
- * - `/<protocol>://<host>/<path>?<query>` (path-based, like cors-anywhere) — path is checked FIRST
- * - `?url=<encoded-target>` (query param) — only used when path has no protocol prefix
- * - `/<host>/<path>` — defaults to https://
+ * - `/<protocol>://<host>/<path>?<query>` (path-based, like cors-anywhere) – path is checked FIRST
+ * - `?url=<encoded-target>` (query param) – only used when path has no protocol prefix
+ * - `/<host>/<path>` – defaults to https://
  */
 export function resolveTargetUrl(url: URL): string | null {
 	const path = url.pathname;
@@ -320,9 +378,9 @@ export function resolveTargetUrl(url: URL): string | null {
 		}
 		// 2. Path-based without protocol: treat as https://<path>
 		if (candidate.length > 0) {
-			// Require a dot, colon (port), or the host to be 'localhost' to avoid
-			// treating arbitrary paths (e.g. /not-a-host) as target hostnames.
-			if (!candidate.includes('.') && !candidate.includes(':') && candidate !== 'localhost') {
+			// Require a dot or colon (port) to avoid treating arbitrary paths
+			// (e.g. /not-a-host) as target hostnames.
+			if (!candidate.includes('.') && !candidate.includes(':')) {
 				return null;
 			}
 			const withProtocol = `https://${candidate}${url.search}`;
@@ -340,11 +398,20 @@ export function resolveTargetUrl(url: URL): string | null {
 	if (urlParam) {
 		try {
 			const decoded = decodeURIComponent(urlParam);
-			new URL(decoded);
+			const parsed = new URL(decoded);
+			// Cloudflare Workers' fetch() only supports HTTP and HTTPS.
+			// Reject other protocols early rather than letting fetch() fail with a cryptic error.
+			// See https://developers.cloudflare.com/workers/reference/protocols/
+			if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+				return null;
+			}
 			return decoded;
 		} catch {
 			try {
-				new URL(urlParam);
+				const parsed = new URL(urlParam);
+				if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+					return null;
+				}
 				return urlParam;
 			} catch {
 				return null;
@@ -376,19 +443,20 @@ export function buildProxyRequest(
 		duplex: hasBody ? 'half' : undefined,
 	};
 
-	// Remove unwanted headers from the outbound request
+	// Apply request header overrides (user-specified via x-corsproxy-headers or reqHeaders query param)
 	const headers = requestInit.headers as Headers;
-	for (const header of config.removeHeaders) {
-		headers.delete(header);
-	}
-
-	// Apply request header overrides
 	for (const [header, value] of Object.entries(reqHeadersOverride)) {
 		if (value === '') {
 			headers.delete(header);
 		} else {
 			headers.set(header, value);
 		}
+	}
+
+	// Remove unwanted headers from the outbound request (admin-enforced, overrides everything)
+	// This runs after the override so it cannot be bypassed.
+	for (const header of config.removeHeaders) {
+		headers.delete(header);
 	}
 
 	// Set the Origin header to the target's origin to avoid triggering CORS on the target

@@ -3,7 +3,22 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { getConfig } from '../src/config';
 import { resolveTargetUrl, handlePreflight, default as worker } from '../src/index';
+
+function makeConfig(overrides: Partial<import('../src/config').ProxyConfig> = {}): import('../src/config').ProxyConfig {
+	return {
+		allowedSite: [],
+		allowedTarget: [],
+		blacklistSite: [],
+		removeHeaders: [],
+		requireHeader: [],
+		devParam: 'dev',
+		devValue: '',
+		maxBodySize: 0,
+		...overrides,
+	};
+}
 
 // ---------------------------------------------------------------------------
 // resolveTargetUrl
@@ -55,9 +70,9 @@ describe('resolveTargetUrl', () => {
 		expect(resolveTargetUrl(url)).toBeNull();
 	});
 
-	it('rejects path without dot, port, or localhost as target hostname', () => {
+	it('rejects path without dot or port as target hostname', () => {
 		const url = new URL('https://proxy.test/not-a-valid-host');
-		// No dot, no port, not 'localhost' — not treated as a hostname
+		// No dot, no port – not treated as a hostname
 		expect(resolveTargetUrl(url)).toBeNull();
 	});
 
@@ -92,6 +107,43 @@ describe('resolveTargetUrl', () => {
 		const url = new URL('https://proxy.test/https://api.example.com/path?existing=1&url=https://nested.com');
 		expect(resolveTargetUrl(url)).toBe('https://api.example.com/path?existing=1&url=https://nested.com');
 	});
+
+	it('rejects bare localhost without dot or port', () => {
+		const url = new URL('https://proxy.test/localhost');
+		expect(resolveTargetUrl(url)).toBeNull();
+	});
+
+	it('allows localhost with port (colon check)', () => {
+		const url = new URL('https://proxy.test/localhost:8080/api');
+		expect(resolveTargetUrl(url)).toBe('https://localhost:8080/api');
+	});
+
+	it('allows localhost with protocol prefix', () => {
+		const url = new URL('https://proxy.test/http://localhost:3000/');
+		expect(resolveTargetUrl(url)).toBe('http://localhost:3000/');
+	});
+
+	// --- Protocol validation (?url= fallback) ---
+
+	it('rejects ftp:// protocol via ?url= parameter', () => {
+		const url = new URL('https://proxy.test/?url=ftp://ftp.example.com/file');
+		expect(resolveTargetUrl(url)).toBeNull();
+	});
+
+	it('rejects file:// protocol via ?url= parameter', () => {
+		const url = new URL('https://proxy.test/?url=file:///etc/passwd');
+		expect(resolveTargetUrl(url)).toBeNull();
+	});
+
+	it('rejects ws:// protocol via ?url= parameter', () => {
+		const url = new URL('https://proxy.test/?url=ws://echo.example.com');
+		expect(resolveTargetUrl(url)).toBeNull();
+	});
+
+	it('rejects non-http protocol via ?url= (encoded)', () => {
+		const url = new URL('https://proxy.test/?url=ftp%3A%2F%2Fftp.example.com');
+		expect(resolveTargetUrl(url)).toBeNull();
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -106,20 +158,6 @@ describe('buildProxyRequest', () => {
 		buildProxyRequest = mod.buildProxyRequest;
 		handleProxyRequest = mod.handleProxyRequest;
 	});
-
-	function makeConfig(overrides: Partial<import('../src/config').ProxyConfig> = {}): import('../src/config').ProxyConfig {
-		return {
-			allowedSite: [],
-			allowedTarget: [],
-			blacklistSite: [],
-			removeHeaders: [],
-			requireHeader: [],
-			devParam: 'dev',
-			devValue: '',
-			maxBodySize: 0,
-			...overrides,
-		};
-	}
 
 	function makeRequest(url = 'https://proxy.test/https://api.example.com/endpoint', init?: RequestInit): Request {
 		return new Request(url, init ?? { method: 'GET' });
@@ -204,22 +242,22 @@ describe('buildProxyRequest', () => {
 	it('uses bodyBuffer when provided', () => {
 		const req = makeRequest('https://proxy.test/https://api.example.com/endpoint', {
 			method: 'POST',
-			// Intentionally omit body — bodyBuffer should be used instead
+			// Intentionally omit body – bodyBuffer should be used instead
 		});
 		const buffer = new TextEncoder().encode('{"buffered":"body"}').buffer as ArrayBuffer;
 		const proxyReq = buildProxyRequest(req, 'https://api.example.com/endpoint', makeConfig(), {}, buffer);
 		expect(proxyReq.method).toBe('POST');
 	});
 
-	it('overrides removeHeaders with reqHeadersOverride', () => {
+	it('removeHeaders takes precedence over reqHeadersOverride (security boundary)', () => {
 		const req = makeRequest('https://proxy.test/target', {
 			headers: { 'X-Debug': 'old-value' },
 		});
 		const proxyReq = buildProxyRequest(req, 'https://api.example.com/endpoint', makeConfig({
 			removeHeaders: ['x-debug'],
 		}), { 'X-Debug': 'new-value' });
-		// Override takes precedence over removal
-		expect(proxyReq.headers.get('X-Debug')).toBe('new-value');
+		// REMOVE_HEADERS is a hard security boundary – it always wins
+		expect(proxyReq.headers.has('X-Debug')).toBe(false);
 	});
 });
 
@@ -227,23 +265,10 @@ describe('buildProxyRequest', () => {
 // handlePreflight
 // ---------------------------------------------------------------------------
 describe('handlePreflight', () => {
-	function makeCfg(overrides: Partial<import('../src/config').ProxyConfig> = {}): import('../src/config').ProxyConfig {
-		return {
-			allowedSite: [],
-			allowedTarget: [],
-			blacklistSite: [],
-			removeHeaders: [],
-			requireHeader: [],
-			devParam: 'dev',
-			devValue: '',
-			maxBodySize: 0,
-			...overrides,
-		};
-	}
 
 	it('returns 204 with wildcard origin when no origin is present', () => {
 		const req = new Request('https://proxy.test/', { method: 'OPTIONS' });
-		const res = handlePreflight(req, makeCfg(), false);
+		const res = handlePreflight(req, makeConfig(), false);
 		expect(res.status).toBe(204);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
 	});
@@ -253,7 +278,7 @@ describe('handlePreflight', () => {
 			method: 'OPTIONS',
 			headers: { Origin: 'https://myapp.com' },
 		});
-		const res = handlePreflight(req, makeCfg(), false);
+		const res = handlePreflight(req, makeConfig(), false);
 		expect(res.status).toBe(204);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://myapp.com');
 		expect(res.headers.get('Vary')).toContain('Origin');
@@ -261,7 +286,7 @@ describe('handlePreflight', () => {
 
 	it('sets standard CORS methods and max-age', () => {
 		const req = new Request('https://proxy.test/', { method: 'OPTIONS' });
-		const res = handlePreflight(req, makeCfg(), false);
+		const res = handlePreflight(req, makeConfig(), false);
 		expect(res.headers.get('Access-Control-Allow-Methods')).toBe('GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS');
 		expect(res.headers.get('Access-Control-Max-Age')).toBe('86400');
 	});
@@ -274,7 +299,7 @@ describe('handlePreflight', () => {
 				'Access-Control-Request-Headers': 'Content-Type, Authorization',
 			},
 		});
-		const res = handlePreflight(req, makeCfg(), false);
+		const res = handlePreflight(req, makeConfig(), false);
 		expect(res.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type, Authorization');
 	});
 
@@ -283,29 +308,33 @@ describe('handlePreflight', () => {
 			method: 'OPTIONS',
 			headers: { Origin: 'https://myapp.com' },
 		});
-		const res = handlePreflight(req, makeCfg(), false);
+		const res = handlePreflight(req, makeConfig(), false);
 		expect(res.headers.get('Access-Control-Allow-Headers')).toBe('*');
 	});
 
-	it('blocks disallowed origin when allowed_site is set', () => {
+	it('blocks disallowed origin when allowed_site is set', async () => {
 		const req = new Request('https://proxy.test/', {
 			method: 'OPTIONS',
 			headers: { Origin: 'https://bad-site.com' },
 		});
-		const res = handlePreflight(req, makeCfg({ allowedSite: ['good.com'] }), false);
-		// Returns 204 empty (no CORS headers) to silently reject
-		expect(res.status).toBe(204);
-		expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+		const res = handlePreflight(req, makeConfig({ allowedSite: ['good.com'] }), false);
+		expect(res.status).toBe(403);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toBe('Origin is not allowed');
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://bad-site.com');
+		expect(res.headers.get('Access-Control-Allow-Methods')).toBe('GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS');
 	});
 
-	it('blocks blacklisted origin', () => {
+	it('blocks blacklisted origin', async () => {
 		const req = new Request('https://proxy.test/', {
 			method: 'OPTIONS',
 			headers: { Origin: 'https://bad-site.com' },
 		});
-		const res = handlePreflight(req, makeCfg({ blacklistSite: ['bad-site.com'] }), false);
-		expect(res.status).toBe(204);
-		expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+		const res = handlePreflight(req, makeConfig({ blacklistSite: ['bad-site.com'] }), false);
+		expect(res.status).toBe(403);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toBe('Origin is blacklisted');
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://bad-site.com');
 	});
 
 	it('allows any origin in dev mode (bypasses restrictions)', () => {
@@ -313,7 +342,7 @@ describe('handlePreflight', () => {
 			method: 'OPTIONS',
 			headers: { Origin: 'https://bad-site.com' },
 		});
-		const res = handlePreflight(req, makeCfg({ allowedSite: ['good.com'] }), true);
+		const res = handlePreflight(req, makeConfig({ allowedSite: ['good.com'] }), true);
 		expect(res.status).toBe(204);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
 	});
@@ -321,15 +350,37 @@ describe('handlePreflight', () => {
 	it('allows any origin when no Origin header is present (even with allowed_site set)', () => {
 		// allowed_site check only applies when origin is present
 		const req = new Request('https://proxy.test/', { method: 'OPTIONS' });
-		const res = handlePreflight(req, makeCfg({ allowedSite: ['good.com'] }), false);
+		const res = handlePreflight(req, makeConfig({ allowedSite: ['good.com'] }), false);
 		expect(res.status).toBe(204);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
 	});
 
 	it('returns empty response body', () => {
 		const req = new Request('https://proxy.test/', { method: 'OPTIONS' });
-		const res = handlePreflight(req, makeCfg(), false);
+		const res = handlePreflight(req, makeConfig(), false);
 		expect(res.status).toBe(204);
+	});
+
+	it('blocks disallowed target when allowed_target is set', async () => {
+		const req = new Request('https://proxy.test/https://evil-target.com/data', {
+			method: 'OPTIONS',
+			headers: { Origin: 'https://good.com' },
+		});
+		const res = handlePreflight(req, makeConfig({ allowedTarget: ['good-target.com'] }), false);
+		expect(res.status).toBe(403);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toBe('Target is not allowed');
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://good.com');
+	});
+
+	it('allows target in allowed_target during preflight', () => {
+		const req = new Request('https://proxy.test/https://good-target.com/data', {
+			method: 'OPTIONS',
+			headers: { Origin: 'https://good.com' },
+		});
+		const res = handlePreflight(req, makeConfig({ allowedTarget: ['good-target.com'] }), false);
+		expect(res.status).toBe(204);
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://good.com');
 	});
 });
 
@@ -352,25 +403,25 @@ describe('handleProxyRequest', () => {
 		vi.unstubAllGlobals();
 	});
 
-	function makeCfg(overrides: Partial<import('../src/config').ProxyConfig> = {}): import('../src/config').ProxyConfig {
-		return {
-			allowedSite: [],
-			allowedTarget: [],
-			blacklistSite: [],
-			removeHeaders: [],
-			requireHeader: [],
-			devParam: 'dev',
-			devValue: '',
-			maxBodySize: 0,
-			...overrides,
+	function mockEnv(overrides: Partial<Record<string, string | undefined>> = {}): Env {
+		const defaults: Record<string, string | undefined> = {
+			ALLOWED_SITE: '',
+			ALLOWED_TARGET: '',
+			BLACKLIST_SITE: '',
+			REMOVE_HEADERS: '',
+			REQUIRE_HEADER: '',
+			DEV_PARAM: undefined,
+			DEV_VALUE: undefined,
+			MAX_BODY_SIZE: undefined,
 		};
+		return { ...defaults, ...overrides } as unknown as Env;
 	}
 
 	// --- Error responses ---
 
 	it('returns 400 when target URL is missing', async () => {
 		const req = new Request('https://proxy.test/');
-		const res = await handleProxyRequest(req, makeCfg(), false);
+		const res = await handleProxyRequest(req, makeConfig(), false);
 		expect(res.status).toBe(400);
 		const body = await res.json() as Record<string, string>;
 		expect(body.error).toContain('Missing target URL');
@@ -380,7 +431,25 @@ describe('handleProxyRequest', () => {
 		// resolveTargetUrl validates URLs internally, so invalid URL formats
 		// are caught as "Missing target URL" before the handler's own URL check.
 		const req = new Request('https://proxy.test/http://');
-		const res = await handleProxyRequest(req, makeCfg(), false);
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.status).toBe(400);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toContain('Missing target URL');
+	});
+
+	it('returns 400 for non-http protocol via ?url= parameter', async () => {
+		// resolveTargetUrl rejects non-http protocols before the handler's own check
+		const req = new Request('https://proxy.test/?url=ftp://ftp.example.com/file');
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.status).toBe(400);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toContain('Missing target URL');
+	});
+
+	it('returns 400 for file:// protocol via ?url= parameter', async () => {
+		// resolveTargetUrl rejects non-http protocols before the handler's own check
+		const req = new Request('https://proxy.test/?url=file:///etc/passwd');
+		const res = await handleProxyRequest(req, makeConfig(), false);
 		expect(res.status).toBe(400);
 		const body = await res.json() as Record<string, string>;
 		expect(body.error).toContain('Missing target URL');
@@ -393,7 +462,7 @@ describe('handleProxyRequest', () => {
 			method: 'POST',
 			headers: { 'Content-Length': '5000' },
 		});
-		const res = await handleProxyRequest(req, makeCfg({ maxBodySize: 1000 }), false);
+		const res = await handleProxyRequest(req, makeConfig({ maxBodySize: 1000 }), false);
 		expect(res.status).toBe(413);
 		const body = await res.json() as Record<string, string>;
 		expect(body.error).toContain('exceeds maximum allowed size');
@@ -404,7 +473,19 @@ describe('handleProxyRequest', () => {
 			method: 'POST',
 			body: 'x'.repeat(5000),
 		});
-		const res = await handleProxyRequest(req, makeCfg({ maxBodySize: 1000 }), false);
+		const res = await handleProxyRequest(req, makeConfig({ maxBodySize: 1000 }), false);
+		expect(res.status).toBe(413);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toContain('exceeds maximum allowed size');
+	});
+
+	it('returns 413 when Content-Length is small but actual body exceeds limit (chunked encoding bypass)', async () => {
+		const req = new Request('https://proxy.test/https://api.example.com/data', {
+			method: 'POST',
+			headers: { 'Content-Length': '10' },
+			body: 'x'.repeat(5000),
+		});
+		const res = await handleProxyRequest(req, makeConfig({ maxBodySize: 1000 }), false);
 		expect(res.status).toBe(413);
 		const body = await res.json() as Record<string, string>;
 		expect(body.error).toContain('exceeds maximum allowed size');
@@ -417,7 +498,7 @@ describe('handleProxyRequest', () => {
 			method: 'POST',
 			body: 'small',
 		});
-		const res = await handleProxyRequest(req, makeCfg({ maxBodySize: 10000 }), false);
+		const res = await handleProxyRequest(req, makeConfig({ maxBodySize: 10000 }), false);
 		expect(res.status).toBe(200);
 	});
 
@@ -428,7 +509,7 @@ describe('handleProxyRequest', () => {
 			method: 'POST',
 			body: 'x'.repeat(50000),
 		});
-		const res = await handleProxyRequest(req, makeCfg({ maxBodySize: 0 }), false);
+		const res = await handleProxyRequest(req, makeConfig({ maxBodySize: 0 }), false);
 		expect(res.status).toBe(200);
 	});
 
@@ -438,7 +519,7 @@ describe('handleProxyRequest', () => {
 		const req = new Request('https://proxy.test/https://api.example.com/data', {
 			headers: { Origin: 'https://bad-site.com' },
 		});
-		const res = await handleProxyRequest(req, makeCfg({ allowedSite: ['good.com'] }), false);
+		const res = await handleProxyRequest(req, makeConfig({ allowedSite: ['good.com'] }), false);
 		expect(res.status).toBe(403);
 		const body = await res.json() as Record<string, string>;
 		expect(body.error).toContain('Origin is not allowed');
@@ -448,17 +529,29 @@ describe('handleProxyRequest', () => {
 		const req = new Request('https://proxy.test/https://api.example.com/data', {
 			headers: { Origin: 'https://bad-site.com' },
 		});
-		const res = await handleProxyRequest(req, makeCfg({ blacklistSite: ['bad-site.com'] }), false);
+		const res = await handleProxyRequest(req, makeConfig({ blacklistSite: ['bad-site.com'] }), false);
 		expect(res.status).toBe(403);
 		const body = await res.json() as Record<string, string>;
 		expect(body.error).toContain('Origin is blacklisted');
+	});
+
+	it('returns 400 when BLACKLIST_SITE is set but request has no Origin header', async () => {
+		// When BLACKLIST_SITE is configured, getConfig() auto-prepends Origin to requireHeader.
+		// The handler enforces this – test both the config layer and the handler together.
+		const cfg = getConfig(mockEnv({ BLACKLIST_SITE: 'evil.com' }));
+		const req = new Request('https://proxy.test/https://api.example.com/data');
+		const res = await handleProxyRequest(req, cfg, false);
+		expect(res.status).toBe(400);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toContain('Missing required header');
+		expect(body.error).toContain('Origin');
 	});
 
 	it('returns 403 when target is not in allowed_target', async () => {
 		const req = new Request('https://proxy.test/https://evil-target.com/data', {
 			headers: { Origin: 'https://good.com' },
 		});
-		const res = await handleProxyRequest(req, makeCfg({
+		const res = await handleProxyRequest(req, makeConfig({
 			allowedTarget: ['good-target.com'],
 		}), false);
 		expect(res.status).toBe(403);
@@ -470,7 +563,7 @@ describe('handleProxyRequest', () => {
 		const req = new Request('https://proxy.test/https://api.example.com/data', {
 			headers: { Origin: 'https://good.com' },
 		});
-		const res = await handleProxyRequest(req, makeCfg({
+		const res = await handleProxyRequest(req, makeConfig({
 			requireHeader: ['X-Required'],
 		}), false);
 		expect(res.status).toBe(400);
@@ -486,7 +579,7 @@ describe('handleProxyRequest', () => {
 		const req = new Request('https://proxy.test/https://evil-target.com/data', {
 			headers: { Origin: 'https://bad-site.com' },
 		});
-		const res = await handleProxyRequest(req, makeCfg({
+		const res = await handleProxyRequest(req, makeConfig({
 			allowedSite: ['good.com'],
 			allowedTarget: ['good-target.com'],
 			blacklistSite: ['bad-site.com'],
@@ -502,7 +595,7 @@ describe('handleProxyRequest', () => {
 		const mockFetch = vi.mocked(globalThis.fetch);
 		mockFetch.mockRejectedValue(new Error('Connection refused'));
 		const req = new Request('https://proxy.test/https://api.example.com/data');
-		const res = await handleProxyRequest(req, makeCfg(), false);
+		const res = await handleProxyRequest(req, makeConfig(), false);
 		expect(res.status).toBe(502);
 		const body = await res.json() as Record<string, string>;
 		expect(body.error).toContain('Failed to fetch target');
@@ -515,7 +608,7 @@ describe('handleProxyRequest', () => {
 			headers: { 'Content-Type': 'application/json' },
 		}));
 		const req = new Request('https://proxy.test/https://api.example.com/data');
-		const res = await handleProxyRequest(req, makeCfg(), false);
+		const res = await handleProxyRequest(req, makeConfig(), false);
 		expect(res.status).toBe(200);
 		expect(res.headers.get('Content-Type')).toBe('application/json');
 		const text = await res.text();
@@ -530,7 +623,7 @@ describe('handleProxyRequest', () => {
 		const req = new Request('https://proxy.test/https://api.example.com/data', {
 			headers: { Origin: 'https://myapp.com' },
 		});
-		const res = await handleProxyRequest(req, makeCfg(), false);
+		const res = await handleProxyRequest(req, makeConfig(), false);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://myapp.com');
 		expect(res.headers.get('Vary')).toContain('Origin');
 	});
@@ -539,7 +632,7 @@ describe('handleProxyRequest', () => {
 		const mockFetch = vi.mocked(globalThis.fetch);
 		mockFetch.mockResolvedValue(new Response('ok'));
 		const req = new Request('https://proxy.test/https://api.example.com/data');
-		const res = await handleProxyRequest(req, makeCfg(), false);
+		const res = await handleProxyRequest(req, makeConfig(), false);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
 	});
 
@@ -549,7 +642,7 @@ describe('handleProxyRequest', () => {
 		const req = new Request('https://proxy.test/https://api.example.com/data', {
 			headers: { Origin: 'https://myapp.com' },
 		});
-		const res = await handleProxyRequest(req, makeCfg(), true);
+		const res = await handleProxyRequest(req, makeConfig(), true);
 		// Dev mode overrides to *
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
 	});
@@ -562,7 +655,7 @@ describe('handleProxyRequest', () => {
 			headers: { 'X-Original': 'val' },
 		}));
 		const req = new Request('https://proxy.test/https://api.example.com/data?resHeaders=X-Custom:override');
-		const res = await handleProxyRequest(req, makeCfg(), false);
+		const res = await handleProxyRequest(req, makeConfig(), false);
 		expect(res.headers.get('X-Custom')).toBe('override');
 	});
 
@@ -572,7 +665,7 @@ describe('handleProxyRequest', () => {
 			headers: { 'X-Remove-Me': 'should-go' },
 		}));
 		const req = new Request('https://proxy.test/https://api.example.com/data?resHeaders=X-Remove-Me:');
-		const res = await handleProxyRequest(req, makeCfg(), false);
+		const res = await handleProxyRequest(req, makeConfig(), false);
 		expect(res.headers.has('X-Remove-Me')).toBe(false);
 	});
 
@@ -584,7 +677,7 @@ describe('handleProxyRequest', () => {
 				'x-corsproxy-res-headers': '{"FromHeader":"wins"}',
 			},
 		});
-		const res = await handleProxyRequest(req, makeCfg(), false);
+		const res = await handleProxyRequest(req, makeConfig(), false);
 		expect(res.headers.get('FromHeader')).toBe('wins');
 	});
 
@@ -592,7 +685,7 @@ describe('handleProxyRequest', () => {
 		const mockFetch = vi.mocked(globalThis.fetch);
 		mockFetch.mockResolvedValue(new Response('ok'));
 		const req = new Request('https://proxy.test/https://api.example.com/data');
-		const res = await handleProxyRequest(req, makeCfg(), false);
+		const res = await handleProxyRequest(req, makeConfig(), false);
 		expect(res.headers.get('Access-Control-Allow-Methods')).toBe('GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS');
 		expect(res.headers.get('Access-Control-Allow-Headers')).toBe('*');
 	});
@@ -601,8 +694,41 @@ describe('handleProxyRequest', () => {
 		const mockFetch = vi.mocked(globalThis.fetch);
 		mockFetch.mockResolvedValue(new Response('not found', { status: 404 }));
 		const req = new Request('https://proxy.test/https://api.example.com/not-found');
-		const res = await handleProxyRequest(req, makeCfg(), false);
+		const res = await handleProxyRequest(req, makeConfig(), false);
 		expect(res.status).toBe(404);
+	});
+
+	it('blocks Set-Cookie in response header overrides', async () => {
+		const mockFetch = vi.mocked(globalThis.fetch);
+		mockFetch.mockResolvedValue(new Response('ok'));
+		const req = new Request('https://proxy.test/https://api.example.com/data?resHeaders=Set-Cookie:session=stolen', {
+			headers: { Origin: 'https://myapp.com' },
+		});
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.headers.has('Set-Cookie')).toBe(false);
+	});
+
+	it('blocks Set-Cookie via x-corsproxy-res-headers', async () => {
+		const mockFetch = vi.mocked(globalThis.fetch);
+		mockFetch.mockResolvedValue(new Response('ok'));
+		const req = new Request('https://proxy.test/https://api.example.com/data', {
+			headers: {
+				Origin: 'https://myapp.com',
+				'x-corsproxy-res-headers': '{"Set-Cookie":"session=stolen"}',
+			},
+		});
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.headers.has('Set-Cookie')).toBe(false);
+	});
+
+	it('allows non-blocked response header overrides', async () => {
+		const mockFetch = vi.mocked(globalThis.fetch);
+		mockFetch.mockResolvedValue(new Response('ok'));
+		const req = new Request('https://proxy.test/https://api.example.com/data?resHeaders=X-Custom:allowed', {
+			headers: { Origin: 'https://myapp.com' },
+		});
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.headers.get('X-Custom')).toBe('allowed');
 	});
 });
 

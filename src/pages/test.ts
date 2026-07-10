@@ -2,6 +2,7 @@
  * /test page – shows server configuration and interactive try-it demo.
  */
 
+import { CSP_HEADER } from '../utils';
 import type { ProxyConfig } from '../config';
 
 const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCTYPE html>
@@ -130,9 +131,9 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
     </div>
   </div>
 <script>
-  const DEV_PARAM = '${config.devParam}';
+  ${isDev ? `const DEV_PARAM = '${config.devParam}';
   const DEV_VALUE = '${config.devValue}';
-
+  ` : ''}
   async function tryProxy() {
     const targetInput = document.getElementById('target-url');
     const target = targetInput.value;
@@ -146,7 +147,7 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
 
     try {
       let proxyUrl = window.location.origin + '/' + target;
-      // Forward dev mode if the current page URL has the dev param
+      ${isDev ? `// Forward dev mode if the current page URL has the dev param
       if (DEV_PARAM) {
         const currentParams = new URL(window.location.href).searchParams;
         const devValue = currentParams.get(DEV_PARAM);
@@ -154,6 +155,7 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
           proxyUrl += (proxyUrl.includes('?') ? '&' : '?') + DEV_PARAM + '=' + encodeURIComponent(devValue);
         }
       }
+      ` : ''}
       const res = await fetch(proxyUrl);
       const text = await res.text();
       try {
@@ -184,7 +186,7 @@ export function renderTestPage(
 		headers: {
 			'Content-Type': 'text/html;charset=UTF-8',
 			'Access-Control-Allow-Origin': '*',
-			'Content-Security-Policy': "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; style-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; connect-src 'self'; img-src 'self' data: https:; font-src 'self' data:;",
+			'Content-Security-Policy': CSP_HEADER,
 		},
 	});
 }

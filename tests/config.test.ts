@@ -42,12 +42,13 @@ describe('getConfig', () => {
 			ALLOWED_TARGET: 'api.example.com,data.test.com',
 			BLACKLIST_SITE: 'bad-site.com',
 			REMOVE_HEADERS: 'cookie,authorization',
-			REQUIRE_HEADER: 'Origin,X-Requested-With',
+			REQUIRE_HEADER: 'X-Requested-With',
 		}));
 		expect(cfg.allowedSite).toEqual(['mysite.com', 'anotherapp.org']);
 		expect(cfg.allowedTarget).toEqual(['api.example.com', 'data.test.com']);
 		expect(cfg.blacklistSite).toEqual(['bad-site.com']);
 		expect(cfg.removeHeaders).toEqual(['cookie', 'authorization']);
+		// Origin is auto-prepended because ALLOWED_SITE is non-empty
 		expect(cfg.requireHeader).toEqual(['Origin', 'X-Requested-With']);
 	});
 
@@ -72,6 +73,87 @@ describe('getConfig', () => {
 		}));
 		expect(cfg.allowedSite).toEqual(['app.example.com']);
 		expect(cfg.allowedTarget).toEqual(['api.web.archive.org', 'localhost']);
+	});
+
+	it('preserves wildcard prefix in hostname lists', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_SITE: '*.example.com,example.com',
+			ALLOWED_TARGET: '*.api.example.com',
+			BLACKLIST_SITE: '*.evil.com',
+		}));
+		expect(cfg.allowedSite).toEqual(['*.example.com', 'example.com']);
+		expect(cfg.allowedTarget).toEqual(['*.api.example.com']);
+		expect(cfg.blacklistSite).toEqual(['*.evil.com']);
+	});
+
+	it('rejects wildcards targeting a TLD (public suffix)', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_SITE: '*.com,*.org,*.net',
+		}));
+		expect(cfg.allowedSite).toEqual([]);
+	});
+
+	it('rejects wildcards targeting a multi-part public suffix like co.uk', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_SITE: '*.co.uk,*.gov.uk',
+		}));
+		expect(cfg.allowedSite).toEqual([]);
+	});
+
+	it('rejects wildcards targeting public suffix but keeps valid wildcards', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_SITE: '*.com,*.example.com,*.co.uk,*.myapp.co.uk',
+		}));
+		expect(cfg.allowedSite).toEqual(['*.example.com', '*.myapp.co.uk']);
+	});
+
+	it('rejects bare wildcard "*."', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_SITE: '*.',
+		}));
+		expect(cfg.allowedSite).toEqual([]);
+	});
+
+	it('auto-prepends Origin to requireHeader when ALLOWED_SITE is set', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_SITE: 'mysite.com',
+			REQUIRE_HEADER: 'X-Custom',
+		}));
+		expect(cfg.requireHeader).toEqual(['Origin', 'X-Custom']);
+	});
+
+	it('does not duplicate Origin in requireHeader when already present', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_SITE: 'mysite.com',
+			REQUIRE_HEADER: 'Origin,X-Custom',
+		}));
+		expect(cfg.requireHeader).toEqual(['Origin', 'X-Custom']);
+	});
+
+	it('auto-prepends Origin to requireHeader when BLACKLIST_SITE is set (even without ALLOWED_SITE)', () => {
+		const cfg = getConfig(mockEnv({
+			BLACKLIST_SITE: 'evil.com',
+			REQUIRE_HEADER: 'X-Custom',
+		}));
+		expect(cfg.requireHeader).toEqual(['Origin', 'X-Custom']);
+	});
+
+	it('does not duplicate Origin when BLACKLIST_SITE and ALLOWED_SITE are both set and Origin already present', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_SITE: 'good.com',
+			BLACKLIST_SITE: 'evil.com',
+			REQUIRE_HEADER: 'Origin,X-Custom',
+		}));
+		expect(cfg.requireHeader).toEqual(['Origin', 'X-Custom']);
+	});
+
+	it('does not auto-prepend Origin when both ALLOWED_SITE and BLACKLIST_SITE are empty', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_SITE: '',
+			BLACKLIST_SITE: '',
+			REQUIRE_HEADER: 'X-Custom',
+		}));
+		expect(cfg.requireHeader).toEqual(['X-Custom']);
 	});
 
 	it('handles empty string lists as empty arrays', () => {

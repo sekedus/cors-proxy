@@ -2,6 +2,7 @@
  * Homepage page – renders the README using github-markdown-css + Marked.js.
  */
 
+import { CSP_HEADER } from '../utils';
 import { getEmbeddedReadme } from './readme';
 
 const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string) => `<!DOCTYPE html>
@@ -41,8 +42,10 @@ const HOMEPAGE_HTML_TEMPLATE = (readmeContent: string) => `<!DOCTYPE html>
   <div id="readme-content"></div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.6/marked.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked-alert@2.1.2/dist/index.umd.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
   const readmeContent = ${JSON.stringify(readmeContent)};
+  marked.use(markedAlert());
   document.getElementById('readme-content').innerHTML = marked.parse(readmeContent);
 </script>
 </body>
@@ -59,7 +62,7 @@ export function renderHomepage(): Response {
 		headers: {
 			'Content-Type': 'text/html;charset=UTF-8',
 			'Access-Control-Allow-Origin': '*',
-			'Content-Security-Policy': "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; style-src 'self' https://cdnjs.cloudflare.com 'unsafe-inline'; connect-src 'self'; img-src 'self' data: https:; font-src 'self' data:;",
+			'Content-Security-Policy': CSP_HEADER,
 		},
 	});
 }
