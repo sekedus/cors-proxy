@@ -12,6 +12,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CORS Proxy – Playground</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.6.1/github-markdown.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 <style>
   * { box-sizing: border-box; }

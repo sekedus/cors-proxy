@@ -23,6 +23,7 @@ import {
 import { renderHomepage } from './pages/home';
 import { renderTestPage } from './pages/test';
 import { renderPlaygroundPage } from './pages/playground';
+import { renderFavicon } from './pages/favicon';
 
 export default {
 	async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
@@ -50,6 +51,11 @@ export default {
 		// ----- Playground -----
 		if (url.pathname === '/playground') {
 			return renderPlaygroundPage(config, isDev);
+		}
+
+		// ----- Favicon -----
+		if (url.pathname === '/favicon.svg') {
+			return renderFavicon();
 		}
 
 		// ----- CORS Preflight -----

@@ -11,6 +11,7 @@ const TEST_PAGE_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOCT
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CORS Proxy – Test</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.6.1/github-markdown.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 <style>
   body {
