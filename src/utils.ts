@@ -54,6 +54,27 @@ export function getRequestOrigin(request: Request): string | null {
 }
 
 /**
+ * Check if the request is same-origin via the Sec-Fetch-Site header.
+ *
+ * When a browser sends `Sec-Fetch-Site: same-origin`, it means the requesting
+ * page is served from the *exact same origin* as the target – i.e. the request
+ * came from one of the proxy's own pages (/, /test, /playground).
+ *
+ * Sec-Fetch-Site is a forbidden request header – JavaScript cannot set it in
+ * fetch() / XMLHttpRequest. It is set only by the browser, so it's a reliable
+ * signal of same-origin requests even when the Origin header is absent (which
+ * is normal for same-origin GET requests).
+ *
+ * When this returns true, origin-based access controls (ALLOWED_SITE,
+ * BLACKLIST_SITE, and the Origin requirement in REQUIRE_HEADER) can be
+ * safely bypassed because the request originates from the proxy itself.
+ */
+export function isSameOriginRequest(request: Request): boolean {
+	const secFetchSite = request.headers.get('Sec-Fetch-Site');
+	return secFetchSite?.toLowerCase() === 'same-origin';
+}
+
+/**
  * Check if a value is in a list (case-insensitive).
  * Supports wildcard entries with `*.` prefix to match any subdomain.
  * For example, `*.example.com` matches `sub.example.com` but NOT `example.com`.

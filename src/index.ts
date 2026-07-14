@@ -17,6 +17,7 @@ import {
 	extractHostname,
 	getRequestOrigin,
 	isInList,
+	isSameOriginRequest,
 	parseHeaderOverrideHeader,
 	parseHeaderQueryParams,
 } from './utils';
@@ -74,6 +75,7 @@ export default {
  */
 export function handlePreflight(request: Request, config: ProxyConfig, isDev: boolean): Response {
 	const originUrl = getRequestOrigin(request);
+	const isSameOrigin = isSameOriginRequest(request);
 
 	// Helper to build a JSON error response with CORS headers for preflight failures.
 	// Unlike the main handler, preflight responses must include CORS headers so the
@@ -96,20 +98,25 @@ export function handlePreflight(request: Request, config: ProxyConfig, isDev: bo
 	}
 
 	if (!isDev) {
-		// allowed_site / blacklist_site checks
-		if (originUrl) {
-			const originHost = extractHostname(originUrl);
-			if (originHost) {
-				if (config.allowedSite.length > 0 && !isInList(config.allowedSite, originHost)) {
+		// Same-origin requests (Sec-Fetch-Site: same-origin) come from
+		// the proxy's own pages (/, /test, /playground). They are trusted and
+		// skip origin-based access controls. Target restrictions still apply.
+		if (!isSameOrigin) {
+			// allowed_site / blacklist_site checks
+			if (originUrl) {
+				const originHost = extractHostname(originUrl);
+				if (originHost) {
+					if (config.allowedSite.length > 0 && !isInList(config.allowedSite, originHost)) {
+						return preflightError(403, 'Origin is not allowed');
+					}
+					if (isInList(config.blacklistSite, originHost)) {
+						return preflightError(403, 'Origin is blacklisted');
+					}
+				} else if (config.allowedSite.length > 0) {
+					// Origin is present but not a valid hostname (e.g. "null" from sandboxed iframe).
+					// Block when allowed_site is configured since it can't match any entry.
 					return preflightError(403, 'Origin is not allowed');
 				}
-				if (isInList(config.blacklistSite, originHost)) {
-					return preflightError(403, 'Origin is blacklisted');
-				}
-			} else if (config.allowedSite.length > 0) {
-				// Origin is present but not a valid hostname (e.g. "null" from sandboxed iframe).
-				// Block when allowed_site is configured since it can't match any entry.
-				return preflightError(403, 'Origin is not allowed');
 			}
 		}
 
@@ -130,6 +137,8 @@ export function handlePreflight(request: Request, config: ProxyConfig, isDev: bo
 		// require_header: client must include these headers
 		if (config.requireHeader.length > 0) {
 			for (const header of config.requireHeader) {
+				// Same-origin requests don't send an Origin header – skip that check.
+				if (isSameOrigin && header.toLowerCase() === 'origin') continue;
 				if (!request.headers.get(header)) {
 					return preflightError(400, `Missing required header: ${header}`);
 				}
@@ -237,27 +246,33 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 	// ---- Access control ----
 	// Capture the client's origin once and reuse it for both access control and CORS response headers.
 	const originUrl = getRequestOrigin(request);
+	const isSameOrigin = isSameOriginRequest(request);
 
 	if (!isDev) {
-		// allowed_site: if list is non-empty, origin must be in it
-		if (config.allowedSite.length > 0 && originUrl) {
-			const originHost = extractHostname(originUrl);
-			if (!originHost || !isInList(config.allowedSite, originHost)) {
-				return new Response(JSON.stringify({ error: 'Origin is not allowed' }), {
-					status: 403,
-					headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-				});
+		// Same-origin requests (Sec-Fetch-Site: same-origin) come from the
+		// proxy's own pages (/, /test, /playground). They are trusted and
+		// skip origin-based access controls. Target restrictions still apply.
+		if (!isSameOrigin) {
+			// allowed_site: if list is non-empty, origin must be in it
+			if (config.allowedSite.length > 0 && originUrl) {
+				const originHost = extractHostname(originUrl);
+				if (!originHost || !isInList(config.allowedSite, originHost)) {
+					return new Response(JSON.stringify({ error: 'Origin is not allowed' }), {
+						status: 403,
+						headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+					});
+				}
 			}
-		}
 
-		// blacklist_site: if origin is blacklisted, block
-		if (config.blacklistSite.length > 0 && originUrl) {
-			const originHost = extractHostname(originUrl);
-			if (originHost && isInList(config.blacklistSite, originHost)) {
-				return new Response(JSON.stringify({ error: 'Origin is blacklisted' }), {
-					status: 403,
-					headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-				});
+			// blacklist_site: if origin is blacklisted, block
+			if (config.blacklistSite.length > 0 && originUrl) {
+				const originHost = extractHostname(originUrl);
+				if (originHost && isInList(config.blacklistSite, originHost)) {
+					return new Response(JSON.stringify({ error: 'Origin is blacklisted' }), {
+						status: 403,
+						headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+					});
+				}
 			}
 		}
 
@@ -274,6 +289,8 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 		// require_header: client must include these headers
 		if (config.requireHeader.length > 0) {
 			for (const header of config.requireHeader) {
+				// Same-origin requests don't send an Origin header – skip that check.
+				if (isSameOrigin && header.toLowerCase() === 'origin') continue;
 				if (!request.headers.get(header)) {
 					return new Response(
 						JSON.stringify({ error: `Missing required header: ${header}` }),

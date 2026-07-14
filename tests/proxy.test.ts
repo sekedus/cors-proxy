@@ -355,6 +355,36 @@ describe('handlePreflight', () => {
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
 	});
 
+	it('allows same-origin request to bypass Origin requirement in preflight', () => {
+		const req = new Request('https://proxy.test/https://api.example.com/data', {
+			method: 'OPTIONS',
+			headers: {
+				'Sec-Fetch-Site': 'same-origin',
+				// No Origin header – same-origin requests don't send it
+			},
+		});
+		const res = handlePreflight(req, makeConfig({
+			allowedTarget: ['api.example.com'],
+			requireHeader: ['Origin'],
+		}), false);
+		expect(res.status).toBe(204);
+	});
+
+	it('allows same-origin request to bypass allowed_site check in preflight', () => {
+		const req = new Request('https://proxy.test/https://api.example.com/data', {
+			method: 'OPTIONS',
+			headers: {
+				'Sec-Fetch-Site': 'same-origin',
+				// No Origin header
+			},
+		});
+		const res = handlePreflight(req, makeConfig({
+			allowedSite: ['only-specific-site.com'],
+			allowedTarget: ['api.example.com'],
+		}), false);
+		expect(res.status).toBe(204);
+	});
+
 	it('returns empty response body', () => {
 		const req = new Request('https://proxy.test/', { method: 'OPTIONS' });
 		const res = handlePreflight(req, makeConfig(), false);
@@ -523,6 +553,51 @@ describe('handleProxyRequest', () => {
 		expect(res.status).toBe(403);
 		const body = await res.json() as Record<string, string>;
 		expect(body.error).toContain('Origin is not allowed');
+	});
+
+	it('allows same-origin request without Origin when allowed_site is set', async () => {
+		const mockFetch = vi.mocked(globalThis.fetch);
+		mockFetch.mockResolvedValue(new Response('same-origin-ok'));
+		const req = new Request('https://proxy.test/https://api.example.com/data', {
+			headers: { 'Sec-Fetch-Site': 'same-origin' },
+		});
+		const res = await handleProxyRequest(req, makeConfig({
+			allowedSite: ['specific-site.com'],
+			allowedTarget: ['api.example.com'],
+		}), false);
+		expect(res.status).toBe(200);
+		const text = await res.text();
+		expect(text).toBe('same-origin-ok');
+	});
+
+	it('allows same-origin request to skip requireHeader Origin check', async () => {
+		const mockFetch = vi.mocked(globalThis.fetch);
+		mockFetch.mockResolvedValue(new Response('same-origin-ok'));
+		const req = new Request('https://proxy.test/https://api.example.com/data', {
+			headers: {
+				'Sec-Fetch-Site': 'same-origin',
+				'X-Custom': 'present',
+			},
+		});
+		const res = await handleProxyRequest(req, makeConfig({
+			requireHeader: ['Origin', 'X-Custom'],
+			allowedTarget: ['api.example.com'],
+		}), false);
+		expect(res.status).toBe(200);
+		const text = await res.text();
+		expect(text).toBe('same-origin-ok');
+	});
+
+	it('still blocks same-origin request when target is not allowed', async () => {
+		const req = new Request('https://proxy.test/https://evil-target.com/data', {
+			headers: { 'Sec-Fetch-Site': 'same-origin' },
+		});
+		const res = await handleProxyRequest(req, makeConfig({
+			allowedTarget: ['api.example.com'],
+		}), false);
+		expect(res.status).toBe(403);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toContain('Target is not allowed');
 	});
 
 	it('returns 403 when origin is blacklisted', async () => {

@@ -9,6 +9,7 @@ import {
 	isInList,
 	extractHostname,
 	getRequestOrigin,
+	isSameOriginRequest,
 } from '../src/utils';
 
 // ---------------------------------------------------------------------------
@@ -197,6 +198,58 @@ describe('extractHostname', () => {
 
 	it('returns null for empty string', () => {
 		expect(extractHostname('')).toBeNull();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// isSameOriginRequest
+// ---------------------------------------------------------------------------
+describe('isSameOriginRequest', () => {
+	it('returns true when Sec-Fetch-Site is same-origin', () => {
+		const req = new Request('https://proxy.test/', {
+			headers: { 'Sec-Fetch-Site': 'same-origin' },
+		});
+		expect(isSameOriginRequest(req)).toBe(true);
+	});
+
+	it('returns false when Sec-Fetch-Site is cross-site', () => {
+		const req = new Request('https://proxy.test/', {
+			headers: { 'Sec-Fetch-Site': 'cross-site' },
+		});
+		expect(isSameOriginRequest(req)).toBe(false);
+	});
+
+	it('returns false when Sec-Fetch-Site is same-site', () => {
+		const req = new Request('https://proxy.test/', {
+			headers: { 'Sec-Fetch-Site': 'same-site' },
+		});
+		expect(isSameOriginRequest(req)).toBe(false);
+	});
+
+	it('returns false when Sec-Fetch-Site is none', () => {
+		const req = new Request('https://proxy.test/', {
+			headers: { 'Sec-Fetch-Site': 'none' },
+		});
+		expect(isSameOriginRequest(req)).toBe(false);
+	});
+
+	it('returns false when Sec-Fetch-Site header is absent', () => {
+		const req = new Request('https://proxy.test/');
+		expect(isSameOriginRequest(req)).toBe(false);
+	});
+
+	it('returns false when Sec-Fetch-Site is empty string', () => {
+		const req = new Request('https://proxy.test/', {
+			headers: { 'Sec-Fetch-Site': '' },
+		});
+		expect(isSameOriginRequest(req)).toBe(false);
+	});
+
+	it('is case-insensitive for same-origin', () => {
+		const req = new Request('https://proxy.test/', {
+			headers: { 'Sec-Fetch-Site': 'SAME-ORIGIN' },
+		});
+		expect(isSameOriginRequest(req)).toBe(true);
 	});
 });
 
