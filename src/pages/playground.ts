@@ -67,6 +67,7 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     border: 1px solid var(--borderColor-default, #d0d7de);
     border-radius: 6px;
     padding: 16px;
+    margin-bottom: 16px;
   }
   .panel h3 {
     margin: 0 0 12px;
@@ -112,6 +113,11 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     gap: 6px;
     margin-bottom: 6px;
     align-items: center;
+  }
+  .header-row input[type="checkbox"] {
+    flex: none;
+    width: auto;
+    margin: 0;
   }
   .header-row input {
     flex: 1;
@@ -465,6 +471,14 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
   ` : ''}
   let reqHeaderIdx = 0, resHeaderIdx = 0;
 
+  function updateCb(el) {
+    const row = el.parentElement;
+    const cb = row.querySelector('input[type="checkbox"]');
+    const name = row.querySelector('.hdr-name').value.trim();
+    const value = row.querySelector('.hdr-value').value.trim();
+    cb.checked = !!(name && value);
+  }
+
   function addReqHeader(name, value) {
     const c = document.getElementById('req-headers-container');
     const idx = ++reqHeaderIdx;
@@ -472,8 +486,9 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     div.className = 'header-row';
     div.id = 'req-hdr-' + idx;
     div.innerHTML =
-      '<input class="hdr-name" placeholder="Header" value="' + esc(name || '') + '">' +
-      '<input placeholder="Value" value="' + esc(value || '') + '">' +
+      '<input type="checkbox">' +
+      '<input class="hdr-name" placeholder="Header" value="' + esc(name || '') + '" oninput="updateCb(this)">' +
+      '<input class="hdr-value" placeholder="Value" value="' + esc(value || '') + '" oninput="updateCb(this)">' +
       '<button onclick="this.parentElement.remove()">✕</button>';
     c.appendChild(div);
   }
@@ -485,8 +500,9 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     div.className = 'header-row';
     div.id = 'res-hdr-' + idx;
     div.innerHTML =
-      '<input class="hdr-name" placeholder="Header" value="' + esc(name || '') + '">' +
-      '<input placeholder="Value" value="' + esc(value || '') + '">' +
+      '<input type="checkbox">' +
+      '<input class="hdr-name" placeholder="Header" value="' + esc(name || '') + '" oninput="updateCb(this)">' +
+      '<input class="hdr-value" placeholder="Value" value="' + esc(value || '') + '" oninput="updateCb(this)">' +
       '<button onclick="this.parentElement.remove()">✕</button>';
     c.appendChild(div);
   }
@@ -560,9 +576,10 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     const hdrs = {};
     rows.forEach(row => {
       const inputs = row.querySelectorAll('input');
-      const name = inputs[0].value.trim();
-      const value = inputs[1].value;
-      if (name) hdrs[name] = value;
+      const cb = inputs[0];
+      const name = inputs[1].value.trim();
+      const value = inputs[2].value;
+      if (cb.checked && name) hdrs[name] = value;
     });
     return hdrs;
   }
@@ -701,6 +718,8 @@ const PLAYGROUND_HTML_TEMPLATE = (config: ProxyConfig, isDev: boolean) => `<!DOC
     }
   }
 
+  // Pre-fill some default headers for convenience
+  addReqHeader('Accept', 'application/json');
   addReqHeader('Referer', 'https://web.archive.org/');
   addResHeader('Content-Type', 'application/json');
 </script>
