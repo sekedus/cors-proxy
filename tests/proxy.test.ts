@@ -3,8 +3,14 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import type { TargetRule } from '../src/config';
 import { getConfig } from '../src/config';
 import { resolveTargetUrl, handlePreflight, default as worker } from '../src/index';
+
+/** Shorthand to build a hostname-only TargetRule from a string. */
+function rule(hostname: string, ...pathPatterns: string[]): TargetRule {
+	return { hostname, pathPatterns };
+}
 
 function makeConfig(overrides: Partial<import('../src/config').ProxyConfig> = {}): import('../src/config').ProxyConfig {
 	return {
@@ -118,6 +124,13 @@ describe('resolveTargetUrl', () => {
 		expect(resolveTargetUrl(url)).toBe('https://localhost:8080/api');
 	});
 
+	it('rejects path with invalid port number (new URL fails)', () => {
+		// candidate has a colon (passes the dot/colon check) but the port
+		// is invalid, so new URL('https://example.com:abc') throws.
+		const url = new URL('https://proxy.test/example.com:abc');
+		expect(resolveTargetUrl(url)).toBeNull();
+	});
+
 	it('allows localhost with protocol prefix', () => {
 		const url = new URL('https://proxy.test/http://localhost:3000/');
 		expect(resolveTargetUrl(url)).toBe('http://localhost:3000/');
@@ -142,6 +155,19 @@ describe('resolveTargetUrl', () => {
 
 	it('rejects non-http protocol via ?url= (encoded)', () => {
 		const url = new URL('https://proxy.test/?url=ftp%3A%2F%2Fftp.example.com');
+		expect(resolveTargetUrl(url)).toBeNull();
+	});
+
+	it('handles malformed percent-encoding in ?url with https protocol (inner catch fallback)', () => {
+		// %GG is not valid percent-encoding (G is not hex) — decodeURIComponent throws.
+		// The inner catch tries new URL() on the raw value. For https it succeeds.
+		const url = new URL('https://proxy.test/?url=https://example.com/%GG');
+		expect(resolveTargetUrl(url)).toBe('https://example.com/%GG');
+	});
+
+	it('rejects malformed percent-encoding in ?url with ftp protocol (inner catch fallback)', () => {
+		// decodeURIComponent throws. new URL() succeeds but protocol is not http/https.
+		const url = new URL('https://proxy.test/?url=ftp://example.com/%GG');
 		expect(resolveTargetUrl(url)).toBeNull();
 	});
 });
@@ -364,7 +390,7 @@ describe('handlePreflight', () => {
 			},
 		});
 		const res = handlePreflight(req, makeConfig({
-			allowedTarget: ['api.example.com'],
+			allowedTarget: [rule('api.example.com')],
 			requireHeader: ['Origin'],
 		}), false);
 		expect(res.status).toBe(204);
@@ -380,7 +406,7 @@ describe('handlePreflight', () => {
 		});
 		const res = handlePreflight(req, makeConfig({
 			allowedSite: ['only-specific-site.com'],
-			allowedTarget: ['api.example.com'],
+			allowedTarget: [rule('api.example.com')],
 		}), false);
 		expect(res.status).toBe(204);
 	});
@@ -396,7 +422,7 @@ describe('handlePreflight', () => {
 			method: 'OPTIONS',
 			headers: { Origin: 'https://good.com' },
 		});
-		const res = handlePreflight(req, makeConfig({ allowedTarget: ['good-target.com'] }), false);
+		const res = handlePreflight(req, makeConfig({ allowedTarget: [rule('good-target.com')] }), false);
 		expect(res.status).toBe(403);
 		const body = await res.json() as Record<string, string>;
 		expect(body.error).toBe('Target is not allowed');
@@ -408,9 +434,55 @@ describe('handlePreflight', () => {
 			method: 'OPTIONS',
 			headers: { Origin: 'https://good.com' },
 		});
-		const res = handlePreflight(req, makeConfig({ allowedTarget: ['good-target.com'] }), false);
+		const res = handlePreflight(req, makeConfig({ allowedTarget: [rule('good-target.com')] }), false);
 		expect(res.status).toBe(204);
 		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://good.com');
+	});
+
+	it('blocks preflight with missing required header', async () => {
+		const req = new Request('https://proxy.test/https://api.example.com/data', {
+			method: 'OPTIONS',
+			headers: { Origin: 'https://myapp.com' },
+		});
+		const res = handlePreflight(req, makeConfig({
+			requireHeader: ['X-Required'],
+		}), false);
+		expect(res.status).toBe(400);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toBe('Missing required header: X-Required');
+		// CORS headers must still be present so the browser can read the error
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://myapp.com');
+		expect(res.headers.get('Access-Control-Allow-Methods')).toBe('GET, HEAD, POST, PUT, DELETE, PATCH, OPTIONS');
+		expect(res.headers.get('Access-Control-Max-Age')).toBe('86400');
+	});
+
+	it('blocks preflight with missing required header and no Origin (uses wildcard CORS)', async () => {
+		const req = new Request('https://proxy.test/https://api.example.com/data', {
+			method: 'OPTIONS',
+			// No Origin header
+		});
+		const res = handlePreflight(req, makeConfig({
+			requireHeader: ['X-Required'],
+		}), false);
+		expect(res.status).toBe(400);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toBe('Missing required header: X-Required');
+		// When no Origin is present, preflightError falls back to wildcard
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('*');
+	});
+
+	it('blocks preflight with origin "null" when allowed_site is configured', async () => {
+		// A sandboxed iframe sends Origin: null. The proxy should reject it
+		// when allowed_site is set because "null" can't match any entry.
+		const req = new Request('https://proxy.test/https://api.example.com/data', {
+			method: 'OPTIONS',
+			headers: { Origin: 'null' },
+		});
+		const res = handlePreflight(req, makeConfig({ allowedSite: ['trusted.com'] }), false);
+		expect(res.status).toBe(403);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toBe('Origin is not allowed');
+		expect(res.headers.get('Access-Control-Allow-Origin')).toBe('null');
 	});
 });
 
@@ -563,7 +635,7 @@ describe('handleProxyRequest', () => {
 		});
 		const res = await handleProxyRequest(req, makeConfig({
 			allowedSite: ['specific-site.com'],
-			allowedTarget: ['api.example.com'],
+			allowedTarget: [rule('api.example.com')],
 		}), false);
 		expect(res.status).toBe(200);
 		const text = await res.text();
@@ -581,7 +653,7 @@ describe('handleProxyRequest', () => {
 		});
 		const res = await handleProxyRequest(req, makeConfig({
 			requireHeader: ['Origin', 'X-Custom'],
-			allowedTarget: ['api.example.com'],
+			allowedTarget: [rule('api.example.com')],
 		}), false);
 		expect(res.status).toBe(200);
 		const text = await res.text();
@@ -593,7 +665,7 @@ describe('handleProxyRequest', () => {
 			headers: { 'Sec-Fetch-Site': 'same-origin' },
 		});
 		const res = await handleProxyRequest(req, makeConfig({
-			allowedTarget: ['api.example.com'],
+			allowedTarget: [rule('api.example.com')],
 		}), false);
 		expect(res.status).toBe(403);
 		const body = await res.json() as Record<string, string>;
@@ -627,8 +699,77 @@ describe('handleProxyRequest', () => {
 			headers: { Origin: 'https://good.com' },
 		});
 		const res = await handleProxyRequest(req, makeConfig({
-			allowedTarget: ['good-target.com'],
+			allowedTarget: [rule('good-target.com')],
 		}), false);
+		expect(res.status).toBe(403);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toContain('Target is not allowed');
+	});
+
+	// --- SSRF protection ---
+
+	it('blocks requests to private IPv4 (127.0.0.1)', async () => {
+		const req = new Request('https://proxy.test/https://127.0.0.1/admin', {
+			headers: { Origin: 'https://good.com' },
+		});
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.status).toBe(403);
+		const body = await res.json() as Record<string, string>;
+		expect(body.error).toContain('Target is not allowed');
+	});
+
+	it('blocks requests to private IPv4 (10.x.x.x)', async () => {
+		const req = new Request('https://proxy.test/https://10.0.0.1/secret', {
+			headers: { Origin: 'https://good.com' },
+		});
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.status).toBe(403);
+	});
+
+	it('blocks requests to localhost hostname', async () => {
+		const req = new Request('https://proxy.test/https://localhost:3000/api', {
+			headers: { Origin: 'https://good.com' },
+		});
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.status).toBe(403);
+	});
+
+	it('blocks requests to private IP via ?url= parameter', async () => {
+		const req = new Request('https://proxy.test/?url=https://192.168.1.1/config', {
+			headers: { Origin: 'https://good.com' },
+		});
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.status).toBe(403);
+	});
+
+	it('allows public IPs through SSRF check', async () => {
+		const mockFetch = vi.mocked(globalThis.fetch);
+		mockFetch.mockResolvedValue(new Response('ok'));
+		const req = new Request('https://proxy.test/https://93.184.216.34/path', {
+			headers: { Origin: 'https://good.com' },
+		});
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.status).toBe(200);
+	});
+
+	it('bypasses SSRF blocking in dev mode', async () => {
+		const mockFetch = vi.mocked(globalThis.fetch);
+		mockFetch.mockResolvedValue(new Response('dev-ok'));
+		const req = new Request('https://proxy.test/https://127.0.0.1/admin', {
+			headers: { Origin: 'https://good.com' },
+		});
+		const res = await handleProxyRequest(req, makeConfig(), true);
+		expect(res.status).toBe(200);
+		const text = await res.text();
+		expect(text).toBe('dev-ok');
+	});
+
+	it('blocks requests to private IP in preflight', async () => {
+		const req = new Request('https://proxy.test/https://10.0.0.1/secret', {
+			method: 'OPTIONS',
+			headers: { Origin: 'https://good.com' },
+		});
+		const res = handlePreflight(req, makeConfig(), false);
 		expect(res.status).toBe(403);
 		const body = await res.json() as Record<string, string>;
 		expect(body.error).toContain('Target is not allowed');
@@ -656,7 +797,7 @@ describe('handleProxyRequest', () => {
 		});
 		const res = await handleProxyRequest(req, makeConfig({
 			allowedSite: ['good.com'],
-			allowedTarget: ['good-target.com'],
+			allowedTarget: [rule('good-target.com')],
 			blacklistSite: ['bad-site.com'],
 		}), true);
 		expect(res.status).toBe(200);
@@ -805,6 +946,66 @@ describe('handleProxyRequest', () => {
 		const res = await handleProxyRequest(req, makeConfig(), false);
 		expect(res.headers.get('X-Custom')).toBe('allowed');
 	});
+
+	it('applies reqHeaders from x-corsproxy-headers request header', async () => {
+		const mockFetch = vi.mocked(globalThis.fetch);
+		let capturedRequest: Request | undefined;
+		mockFetch.mockImplementation(async (req) => {
+			capturedRequest = req as Request;
+			return new Response('ok');
+		});
+		const req = new Request('https://proxy.test/https://api.example.com/data', {
+			headers: {
+				Origin: 'https://myapp.com',
+				'x-corsproxy-headers': '{"User-Agent":"CustomAgent/2.0"}',
+			},
+		});
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.status).toBe(200);
+		// Verify the proxied request included the override
+		expect(capturedRequest).toBeDefined();
+		expect(capturedRequest!.headers.get('User-Agent')).toBe('CustomAgent/2.0');
+	});
+
+	it('reqHeaders from x-corsproxy-headers takes precedence over reqHeaders query param', async () => {
+		const mockFetch = vi.mocked(globalThis.fetch);
+		let capturedRequest: Request | undefined;
+		mockFetch.mockImplementation(async (req) => {
+			capturedRequest = req as Request;
+			return new Response('ok');
+		});
+		const req = new Request(
+			'https://proxy.test/https://api.example.com/data?reqHeaders=User-Agent:from-query',
+			{
+				headers: {
+					Origin: 'https://myapp.com',
+					'x-corsproxy-headers': '{"User-Agent":"from-header"}',
+				},
+			},
+		);
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.status).toBe(200);
+		expect(capturedRequest).toBeDefined();
+		// The header value (`from-header`) should win over the query param value (`from-query`)
+		expect(capturedRequest!.headers.get('User-Agent')).toBe('from-header');
+	});
+
+	it('applies reqHeaders from query param when no x-corsproxy-headers header is set', async () => {
+		const mockFetch = vi.mocked(globalThis.fetch);
+		let capturedRequest: Request | undefined;
+		mockFetch.mockImplementation(async (req) => {
+			capturedRequest = req as Request;
+			return new Response('ok');
+		});
+		const req = new Request(
+			'https://proxy.test/https://api.example.com/data?reqHeaders=User-Agent:from-query',
+			{ headers: { Origin: 'https://myapp.com' } },
+		);
+		const res = await handleProxyRequest(req, makeConfig(), false);
+		expect(res.status).toBe(200);
+		expect(capturedRequest).toBeDefined();
+		expect(capturedRequest!.headers.get('User-Agent')).toBe('from-query');
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -931,5 +1132,37 @@ describe('default.fetch (routing)', () => {
 		const res = await worker.fetch(req, env, {} as ExecutionContext);
 		const text = await res.text();
 		expect(text).toContain('🐞 Dev Mode');
+	});
+
+	it('routes /favicon.svg to the favicon handler', async () => {
+		const req = new Request('https://proxy.test/favicon.svg');
+		const res = await worker.fetch(req, env, {} as ExecutionContext);
+		expect(res.headers.get('Content-Type')).toBe('image/svg+xml');
+		expect(res.headers.get('Cache-Control')).toBe('public, max-age=86400');
+		const text = await res.text();
+		expect(text).toContain('<svg');
+		expect(text).toContain('viewBox="0 0 1254 1254"');
+	});
+
+	it('renders playground with dev-mode content when in dev mode', async () => {
+		env.DEV_PARAM = 'dev';
+		env.DEV_VALUE = '';
+		const req = new Request('https://proxy.test/playground?dev=true');
+		const res = await worker.fetch(req, env, {} as ExecutionContext);
+		const text = await res.text();
+		expect(text).toContain('Dev Mode');
+		expect(text).toContain('config-info');
+		expect(text).toContain('DEV_PARAM');
+	});
+
+	it('renders test page with dev-mode content when in dev mode', async () => {
+		env.DEV_PARAM = 'dev';
+		env.DEV_VALUE = '';
+		const req = new Request('https://proxy.test/test?dev=true');
+		const res = await worker.fetch(req, env, {} as ExecutionContext);
+		const text = await res.text();
+		expect(text).toContain('🐞 Dev Mode');
+		expect(text).toContain('config-summary');
+		expect(text).toContain('Server Configuration');
 	});
 });

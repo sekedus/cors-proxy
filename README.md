@@ -300,30 +300,36 @@ See the [Dev Mode](#dev-mode) section for details.
    If it matches one of those, the corresponding page is served.
 2. **Target resolution**:  
    The target URL is extracted from the path (preferred) or the `?url=` query parameter.
-3. **Body size check**:  
-   If `MAX_BODY_SIZE` is set, the request body is checked via `Content-Length` header first (fast-path rejection), then the full body is always read to verify the actual size.  
-   This prevents bypasses via falsified `Content-Length` with chunked encoding.  
-   Requests exceeding the limit get a `413` response.
+3. **SSRF protection**:  
+   If the resolved target hostname is a private or reserved IP address (e.g. `127.0.0.1`, `10.x.x.x`, `192.168.x.x`, `localhost`), the request is blocked with a `403` response.  
+   This is a defence-in-depth measure – only active in production mode.  
+   See the [OWASP SSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) for the blocked ranges.
 4. **Access control**:  
    In production mode, the proxy checks `ALLOWED_SITE`, `BLACKLIST_SITE`, `ALLOWED_TARGET`, and `REQUIRE_HEADER` in order.  
+   `ALLOWED_TARGET` supports path patterns with `*` wildcards and `|` separators — see the [full reference](./docs/allowed-target.md).  
    Only the `Origin` header is used for origin detection – `Referer` is not trusted as a fallback.  
    Dev mode bypasses these checks (but `MAX_BODY_SIZE` and `REMOVE_HEADERS` still apply).  
    See [Allowed / Blacklisted Sites](#allowed--blacklisted-sites) for details on how `Origin` is auto-required when origin-based access control is active.
-5. **Header overrides**:  
+5. **Body size check**:  
+   If `MAX_BODY_SIZE` is set, the request body is checked via `Content-Length` header first (fast-path rejection), then the full body is always read to verify the actual size.  
+   This prevents bypasses via falsified `Content-Length` with chunked encoding.  
+   Requests exceeding the limit get a `413` response.  
+   The body is only read **after** access control passes, preventing blocked origins from consuming memory.
+6. **Header overrides**:  
    Your `x-corsproxy-headers` / `reqHeaders` values are applied to the outgoing request.
-6. **REMOVE_HEADERS**:  
+7. **REMOVE_HEADERS**:  
    Any headers listed in `REMOVE_HEADERS` are stripped (hard boundary – this happens after overrides).
-7. **Origin rewrite**:  
+8. **Origin rewrite**:  
    The `Origin` header is set to the **target's origin** (not the client's).  
    This prevents the target server from seeing a cross-origin request and rejecting it.
-8. **Hop-by-hop headers removed**:  
+9. **Hop-by-hop headers removed**:  
    Headers like `Connection`, `Transfer-Encoding`, `Upgrade` are stripped to avoid interfering with the Worker's own HTTP stack.
-9. **Fetch target**:  
+10. **Fetch target**:  
    The proxied request is sent to the target URL.
-10. **CORS headers added**:  
+11. **CORS headers added**:  
    The response gets `Access-Control-Allow-Origin` (echoing your origin, or `*` if none), `Access-Control-Allow-Methods`, and `Access-Control-Allow-Headers`.  
    If a specific origin is echoed, `Vary: Origin` is also added to help CDNs cache correctly.
-11. **Response header overrides**:  
+12. **Response header overrides**:  
    Your `x-corsproxy-res-headers` / `resHeaders` values are applied to the response.  
    `Set-Cookie` is blocked from overrides – see [Common Use Cases](#common-use-cases) for why.
 
@@ -347,33 +353,6 @@ Your proxy comes with built-in web pages:
 > If you update this README, remember to also update the embedded version in `src/pages/readme.ts` so the homepage stays in sync.
 
 <br/>
-
-<!-- ## ⚠️ Error Responses
-
-The proxy returns JSON error responses with appropriate HTTP status codes:
-
-| Status | Meaning | Example `error` field |
-|--------|---------|-----------------------|
-| `400` | Missing target URL | `"Missing target URL. Use ?url=<target> or /https://example.com"` |
-| `400` | Missing required header | `"Missing required header: X-Required"` |
-| `400` | Invalid target URL | `"Invalid target URL"` |
-| `400` | Non-HTTP protocol in target URL | `"Invalid target URL"` – see [URL Formats](#url-formats) for supported protocols |
-| `403` | Origin not allowed (`ALLOWED_SITE`) | `"Origin is not allowed"` |
-| `403` | Origin blacklisted (`BLACKLIST_SITE`) | `"Origin is blacklisted"` |
-| `403` | Target not allowed (`ALLOWED_TARGET`) | `"Target is not allowed"` |
-| `413` | Request body too large (`MAX_BODY_SIZE`) | `"Request body exceeds maximum allowed size"` |
-| `502` | Target server unreachable | `"Failed to fetch target: ..."` |
-
-```js
-// Example: handling errors in your frontend
-const response = await fetch('https://cors-proxy.<your-subdomain>.workers.dev/https://api.example.com');
-if (!response.ok) {
-  const err = await response.json();
-  console.error(err.error); // e.g. "Target is not allowed"
-}
-```
-
-<br/> -->
 
 ## 🛠️ Development
 
@@ -423,7 +402,7 @@ All configuration variables are **Text-type environment variables** set in the C
 | Variable | Where to set | Purpose | Example / Default |
 |----------|-------------|---------|-------------------|
 | `ALLOWED_SITE` | Dashboard | Only allow requests from these origins | `mysite.com,https://another-site.com/` |
-| `ALLOWED_TARGET` | Dashboard | Only allow requests to these hosts | `https://api.example.com,example.com` |
+| `ALLOWED_TARGET` | Dashboard | Only allow requests to these hosts and paths (see [full docs](./docs/allowed-target.md)) | `example.com,*.archive.org/*/__ia_thumb\|_page_numbers.json` |
 | `BLACKLIST_SITE` | Dashboard | Block requests from these origins | `bad-site.com,spam-site.com` |
 | `REMOVE_HEADERS` | Dashboard | Strip these headers from outgoing requests | `cookie,Authorization` |
 | `REQUIRE_HEADER` | Dashboard | Reject requests missing these headers | `Origin,x-requested-with` |
@@ -444,7 +423,7 @@ If you're deploying this proxy for anything beyond personal experimentation, **l
 | Variable | What to set | Why |
 |----------|-------------|-----|
 | `ALLOWED_SITE` | The exact origin(s) your frontend runs on (e.g. `https://myapp.com`) | Only your site can use the proxy. Everything else gets `403 Origin is not allowed`. |
-| `ALLOWED_TARGET` | The specific API host(s) your frontend talks to (e.g. `api.example.com`) | The proxy will only forward requests to these hosts. Everything else gets `403 Target is not allowed`. |
+| `ALLOWED_TARGET` | The specific API host(s) (+ optional path patterns) your frontend talks to (e.g. `api.example.com` or `archive.org/*/__ia_thumb`) | The proxy will only forward requests to matching hosts and paths. Everything else gets `403 Target is not allowed`. |
 | `REMOVE_HEADERS` | `cookie,authorization` | Strip credentials from the proxied request so the proxy can't be used to forward auth tokens to arbitrary targets. |
 
 **This prevents the three worst-case scenarios:**
@@ -453,16 +432,24 @@ If you're deploying this proxy for anything beyond personal experimentation, **l
 2. **Proxy being used to hit arbitrary hosts** – `ALLOWED_TARGET` restricts which servers the proxy can talk to, preventing SSRF-like abuse.
 3. **Accidental credential forwarding** – `REMOVE_HEADERS` strips `Cookie` and `Authorization` so even if a malicious page tricks a user into making a request, their login tokens aren't forwarded.
 
+**Additional built-in protection:**  
+SSRF (Server-Side Request Forgery) attacks are blocked automatically – requests to private IP ranges (`127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), internal hostnames (`localhost`, `*.local`, `*.internal`), and IPv6 loopback/link-local addresses are rejected with a `403`.
+
 > [!TIP]  
 > **Need for auto-required Origin?** see [Allowed / Blacklisted Sites](#allowed--blacklisted-sites) for details.
 
 ---
 
-#### Allowed / Blacklisted Sites
+### Allowed / Blacklisted Sites
 
-All three lists (`ALLOWED_SITE`, `ALLOWED_TARGET`, `BLACKLIST_SITE`) match against the **hostname only** – scheme (`http`/`https`), port, and path are **ignored**.
+`ALLOWED_SITE` and `BLACKLIST_SITE` match against the **hostname only** – scheme (`http`/`https`), port, and path are **ignored**.
 
-- `https://example.com`, `http://example.com`, and `https://example.com:8080` all resolve to the same hostname: `example.com`
+`ALLOWED_TARGET` uses the same hostname matching plus optional path patterns (see below).
+
+**Hostname rules (all three lists):**
+
+- You can write entries as plain hostnames (`example.com`) or full URLs (`https://example.com`) – the proxy extracts the hostname either way.
+- `https://example.com`, `http://example.com`, and `https://example.com:8080` all resolve to the same hostname: `example.com`.
 - **Subdomains are distinct**:
    `example.com` does **not** match `api.example.com` or `www.example.com`. Add each subdomain explicitly if needed.
 - **Wildcard subdomain matching** – use `*.` prefix to match any subdomain of a domain.  
@@ -471,10 +458,11 @@ All three lists (`ALLOWED_SITE`, `ALLOWED_TARGET`, `BLACKLIST_SITE`) match again
 - **Safety validation**
    Wildcards targeting a public suffix (like `*.com`, `*.co.uk`, `*.s3.amazonaws.com`) are **automatically rejected** at config parse time using the [Public Suffix List](https://publicsuffix.org/).  
    This prevents accidentally allowing every `.com` domain or every `.co.uk` domain.
-- You can write entries as plain hostnames (`example.com`) or full URLs (`https://example.com`) – the proxy extracts the hostname either way.
 - All matching is **case-insensitive**, so `Example.COM` matches `example.com`.
 
-<!-- **Wildcard examples:**
+<br/>
+
+**Wildcard examples:**
 
 | Entry | Matches | Does not match |
 |-------|---------|----------------|
@@ -483,7 +471,13 @@ All three lists (`ALLOWED_SITE`, `ALLOWED_TARGET`, `BLACKLIST_SITE`) match again
 | `*.example.com, example.com` | `example.com`, `api.example.com`, `www.example.com` | `other.com` |
 | `*.com` | ❌ **Rejected** (would match every `.com` domain) | – |
 | `*.co.uk` | ❌ **Rejected** (would match every `.co.uk` domain) | – |
-| `*.myapp.co.uk` | `sub.myapp.co.uk` | `myapp.co.uk`, `other.co.uk` | -->
+| `*.myapp.co.uk` | `sub.myapp.co.uk` | `myapp.co.uk`, `other.co.uk` |
+
+<br/>
+
+**Path patterns (`ALLOWED_TARGET` only):**
+
+`ALLOWED_TARGET` additionally supports path-level restrictions with `*` wildcards and `|` pipe syntax. See the **[full ALLOWED_TARGET reference](./docs/allowed-target.md)** for details, formats, and URL examples.
 
 <br/>
 
@@ -497,7 +491,7 @@ All three lists (`ALLOWED_SITE`, `ALLOWED_TARGET`, `BLACKLIST_SITE`) match again
 
 ---
 
-#### Removed / Required Headers
+### Removed / Required Headers
 
 **`REMOVE_HEADERS`**:   
 Strips specified headers from the outbound request after all overrides are applied.  
@@ -507,14 +501,11 @@ This is a hard security boundary – `x-corsproxy-headers` cannot re-add a remov
 Rejects requests that don't include specified headers.  
 Useful for preventing casual browsing or ensuring clients declare their origin.
 
-> [!NOTE]  
-> When `ALLOWED_SITE` or `BLACKLIST_SITE` is configured, `Origin` is **automatically** prepended to `REQUIRE_HEADER` if not already present – see [Allowed / Blacklisted Sites](#allowed--blacklisted-sites) for why.
-
 HTTP headers are [always case-insensitive](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers) – `Origin` matches `origin`, `X-Requested-With` matches `x-requested-with`, etc.
 
 ---
 
-#### `MAX_BODY_SIZE`
+### `MAX_BODY_SIZE`
 
 Controls the maximum request body the proxy will forward (default: `10MB`). Set to `0` to allow any size (not recommended).
 
@@ -564,7 +555,8 @@ https://cors-proxy.<your-subdomain>.workers.dev/?url=https://api.example.com&adm
 | `403` | `"Origin is not allowed"` | Your origin isn't in `ALLOWED_SITE`. Add your site to `ALLOWED_SITE`. |
 | `403` | `"Origin is not allowed"` when using `*.example.com` | The wildcard `*.example.com` does **not** match `example.com` itself. Add `example.com` separately if needed. |
 | `403` | `"Origin is blacklisted"` | Your origin is in `BLACKLIST_SITE`. Contact the proxy admin to be removed. |
-| `403` | `"Target is not allowed"` | The target host isn't in `ALLOWED_TARGET`. Add it to the list. |
+| `403` | `"Target is not allowed"` | The target host isn't in `ALLOWED_TARGET`. Add it to the list, or check your path patterns if using one. |
+| `403` | `"Target is not allowed"` (private IP / internal hostname) | The target resolved to a private or internal IP address (`127.0.0.1`, `10.x.x.x`, `localhost`, etc.). SSRF protection blocked it. Use a public-facing URL instead. |
 | `400` | `"Missing required header"` | The server requires a header (e.g., `Origin`) that your request doesn't include. Add the header or remove the `REQUIRE_HEADER` config. Note: `Origin` is auto-required when `ALLOWED_SITE` or `BLACKLIST_SITE` is configured – see [Allowed / Blacklisted Sites](#allowed--blacklisted-sites). |
 | `400` | `"Invalid target URL"` when using `?url=ftp://...` or similar | The proxy only supports `http://` and `https://` targets. See [URL Formats](#url-formats) for details. |
 | `413` | `"exceeds maximum allowed size"` | Your request body is larger than `MAX_BODY_SIZE`. Increase the limit or send a smaller payload. |

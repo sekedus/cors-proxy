@@ -8,3 +8,4 @@ dist/
 wrangler.toml
 .wrangler/
 .DS_Store
+coverage/

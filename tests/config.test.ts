@@ -45,7 +45,10 @@ describe('getConfig', () => {
 			REQUIRE_HEADER: 'X-Requested-With',
 		}));
 		expect(cfg.allowedSite).toEqual(['mysite.com', 'anotherapp.org']);
-		expect(cfg.allowedTarget).toEqual(['api.example.com', 'data.test.com']);
+		expect(cfg.allowedTarget).toEqual([
+			{ hostname: 'api.example.com', pathPatterns: [] },
+			{ hostname: 'data.test.com', pathPatterns: [] },
+		]);
 		expect(cfg.blacklistSite).toEqual(['bad-site.com']);
 		expect(cfg.removeHeaders).toEqual(['cookie', 'authorization']);
 		// Origin is auto-prepended because ALLOWED_SITE is non-empty
@@ -72,7 +75,10 @@ describe('getConfig', () => {
 			ALLOWED_TARGET: 'https://api.web.archive.org,http://localhost:8080',
 		}));
 		expect(cfg.allowedSite).toEqual(['app.example.com']);
-		expect(cfg.allowedTarget).toEqual(['api.web.archive.org', 'localhost']);
+		expect(cfg.allowedTarget).toEqual([
+			{ hostname: 'api.web.archive.org', pathPatterns: [] },
+			{ hostname: 'localhost', pathPatterns: [] },
+		]);
 	});
 
 	it('preserves wildcard prefix in hostname lists', () => {
@@ -82,7 +88,9 @@ describe('getConfig', () => {
 			BLACKLIST_SITE: '*.evil.com',
 		}));
 		expect(cfg.allowedSite).toEqual(['*.example.com', 'example.com']);
-		expect(cfg.allowedTarget).toEqual(['*.api.example.com']);
+		expect(cfg.allowedTarget).toEqual([
+			{ hostname: '*.api.example.com', pathPatterns: [] },
+		]);
 		expect(cfg.blacklistSite).toEqual(['*.evil.com']);
 	});
 
@@ -163,6 +171,68 @@ describe('getConfig', () => {
 		}));
 		expect(cfg.allowedSite).toEqual([]);
 		expect(cfg.allowedTarget).toEqual([]);
+	});
+
+	it('fallback to raw entry when URL parsing fails in allowedSite', () => {
+		// 'https://' has an empty host — new URL() throws, catch returns the raw entry
+		const cfg = getConfig(mockEnv({
+			ALLOWED_SITE: 'https://',
+		}));
+		expect(cfg.allowedSite).toEqual(['https://']);
+	});
+
+	it('parses hostname+path target rules', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_TARGET: 'archive.org/*/__ia_thumb|_page_numbers.json|_archive.torrent',
+		}));
+		expect(cfg.allowedTarget).toEqual([
+			{
+				hostname: 'archive.org',
+				pathPatterns: ['*/__ia_thumb', '_page_numbers.json', '_archive.torrent'],
+			},
+		]);
+	});
+
+	it('parses multiple target rules with mixed formats', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_TARGET: 'example.com,archive.org/*/__ia_thumb',
+		}));
+		expect(cfg.allowedTarget).toEqual([
+			{ hostname: 'example.com', pathPatterns: [] },
+			{
+				hostname: 'archive.org',
+				pathPatterns: ['*/__ia_thumb'],
+			},
+		]);
+	});
+
+	it('parses URL-formatted target rule with path', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_TARGET: 'https://archive.org/download/__ia_thumb',
+		}));
+		expect(cfg.allowedTarget).toEqual([
+			{
+				hostname: 'archive.org',
+				pathPatterns: ['download/__ia_thumb'],
+			},
+		]);
+	});
+
+	it('skips entries in ALLOWED_TARGET whose URL fails to parse', () => {
+		// 'https://' has an empty host — new URL() throws, caught by the catch { continue; }
+		const cfg = getConfig(mockEnv({
+			ALLOWED_TARGET: 'https://',
+		}));
+		expect(cfg.allowedTarget).toEqual([]);
+	});
+
+	it('filters wildcards targeting public suffixes in ALLOWED_TARGET', () => {
+		const cfg = getConfig(mockEnv({
+			ALLOWED_TARGET: '*.com,*.co.uk,*.example.com',
+		}));
+		expect(cfg.allowedTarget).toEqual([
+			{ hostname: '*.example.com', pathPatterns: [] },
+		]);
 	});
 
 	it('uses custom devParam', () => {

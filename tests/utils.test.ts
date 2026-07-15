@@ -4,12 +4,16 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+	isPrivateHostname,
+	isTargetAllowed,
+	isSameOriginRequest,
+	isInList,
+	normalizePathname,
 	parseHeaderOverrideHeader,
 	parseHeaderQueryParams,
-	isInList,
+	pathnameMatchesPattern,
 	extractHostname,
 	getRequestOrigin,
-	isSameOriginRequest,
 } from '../src/utils';
 
 // ---------------------------------------------------------------------------
@@ -281,5 +285,287 @@ describe('getRequestOrigin', () => {
 			headers: { Referer: 'https://example.com/page' },
 		});
 		expect(getRequestOrigin(req)).toBeNull();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// normalizePathname
+// ---------------------------------------------------------------------------
+describe('normalizePathname', () => {
+
+	it('leaves a clean path unchanged', () => {
+		expect(normalizePathname('/a/b/c')).toBe('/a/b/c');
+	});
+
+	it('resolves single dot segments', () => {
+		expect(normalizePathname('/a/./b/c')).toBe('/a/b/c');
+	});
+
+	it('resolves double dot segments', () => {
+		expect(normalizePathname('/a/b/../c')).toBe('/a/c');
+	});
+
+	it('resolves multiple double dots', () => {
+		expect(normalizePathname('/a/b/../../c')).toBe('/c');
+	});
+
+	it('collapses double slashes', () => {
+		expect(normalizePathname('//a//b')).toBe('/a/b');
+	});
+
+	it('handles trailing slash', () => {
+		expect(normalizePathname('/a/b/')).toBe('/a/b');
+	});
+
+	it('returns "/" for empty path', () => {
+		expect(normalizePathname('')).toBe('/');
+	});
+
+	it('pushes ".." when there are more double-dots than segments', () => {
+		// result is empty → pushes '..'
+		expect(normalizePathname('..')).toBe('/..');
+		// result last element is '..' → pushes another '..'
+		expect(normalizePathname('/a/../..')).toBe('/..');
+	});
+});
+
+// ---------------------------------------------------------------------------
+// pathnameMatchesPattern
+// ---------------------------------------------------------------------------
+describe('pathnameMatchesPattern', () => {
+
+	it('matches literal pattern exactly', () => {
+		expect(pathnameMatchesPattern('/api/data', 'api/data')).toBe(true);
+	});
+
+	it('does not match different literal', () => {
+		expect(pathnameMatchesPattern('/api/data', 'api/other')).toBe(false);
+	});
+
+	it('anchors pattern without leading * (does not match subdirectory)', () => {
+		// Pattern without * is anchored — only matches exact path
+		expect(pathnameMatchesPattern('/download/__ia_thumb.jpg', '__ia_thumb.jpg')).toBe(false);
+		expect(pathnameMatchesPattern('/__ia_thumb.jpg', '__ia_thumb.jpg')).toBe(true);
+	});
+
+	it('anchors patterns with path segments', () => {
+		expect(pathnameMatchesPattern('/images/__ia_thumb.jpg', 'images/__ia_thumb.jpg')).toBe(true);
+		expect(pathnameMatchesPattern('/other/__ia_thumb.jpg', 'images/__ia_thumb.jpg')).toBe(false);
+	});
+
+	it('matches wildcard at start', () => {
+		expect(pathnameMatchesPattern('/download/mars/__ia_thumb.jpg', '*/__ia_thumb')).toBe(true);
+	});
+
+	it('matches wildcard with _page_numbers.json', () => {
+		expect(pathnameMatchesPattern('/download/book/book_page_numbers.json', '*_page_numbers.json')).toBe(true);
+	});
+
+	it('matches wildcard with _archive.torrent', () => {
+		expect(pathnameMatchesPattern('/download/game/game_archive.torrent', '*_archive.torrent')).toBe(true);
+	});
+
+	it('matches pattern with trailing content', () => {
+		expect(pathnameMatchesPattern('/path/to/file_archive.torrent?query', '*_archive.torrent')).toBe(true);
+	});
+
+	it('does not match when literal part is absent', () => {
+		expect(pathnameMatchesPattern('/download/test.txt', '*_page_numbers.json')).toBe(false);
+	});
+
+	it('treats * as cross-segment wildcard', () => {
+		expect(pathnameMatchesPattern('/a/b/c/d/file.txt', '*/file.txt')).toBe(true);
+	});
+
+	it('handles multiple wildcards in pattern', () => {
+		expect(pathnameMatchesPattern('/a/b/c/d/file.txt', '*/b/*/file.txt')).toBe(true);
+		expect(pathnameMatchesPattern('/a/x/c/d/file.txt', '*/b/*/file.txt')).toBe(false);
+	});
+
+	it('returns false for empty pattern', () => {
+		expect(pathnameMatchesPattern('/test', '')).toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// isTargetAllowed
+// ---------------------------------------------------------------------------
+describe('isTargetAllowed', () => {
+
+	it('allows any target when rules are empty', () => {
+		expect(isTargetAllowed('https://example.com/path', [])).toBe(true);
+	});
+
+	it('matches hostname-only rule', () => {
+		const rules = [{ hostname: 'example.com', pathPatterns: [] }];
+		expect(isTargetAllowed('https://example.com/path', rules)).toBe(true);
+		expect(isTargetAllowed('https://other.com/path', rules)).toBe(false);
+	});
+
+	it('matches hostname with path pattern', () => {
+		const rules = [
+			{ hostname: 'archive.org', pathPatterns: ['*/__ia_thumb'] },
+		];
+		expect(isTargetAllowed('https://archive.org/download/file/__ia_thumb.jpg', rules)).toBe(true);
+		expect(isTargetAllowed('https://archive.org/download/file.txt', rules)).toBe(false);
+	});
+
+	it('matches multiple path patterns (pipe-separated)', () => {
+		const rules = [
+			{
+				hostname: 'archive.org',
+				pathPatterns: ['*/__ia_thumb', '*_page_numbers.json', '*_archive.torrent'],
+			},
+		];
+		expect(isTargetAllowed('https://archive.org/download/x/__ia_thumb.jpg', rules)).toBe(true);
+		expect(isTargetAllowed('https://archive.org/download/book_page_numbers.json', rules)).toBe(true);
+		expect(isTargetAllowed('https://archive.org/download/game_archive.torrent', rules)).toBe(true);
+		expect(isTargetAllowed('https://archive.org/download/other.txt', rules)).toBe(false);
+	});
+
+	it('prevents path traversal bypass', () => {
+		// Even if the raw pathname contains /../, the normalized path won't match
+		const rules = [
+			{ hostname: 'archive.org', pathPatterns: ['*/__ia_thumb'] },
+		];
+		expect(isTargetAllowed('https://archive.org/download/__ia_thumb/../../etc/passwd', rules)).toBe(false);
+	});
+
+	it('prevents percent-encoded path traversal bypass (%2f)', () => {
+		// %2f is NOT decoded by the WHATWG URL parser, so without explicit
+		// handling an attacker could smuggle ../ via  %2f..%2f..%2f
+		const rules = [
+			{ hostname: 'archive.org', pathPatterns: ['*/__ia_thumb'] },
+		];
+		// The decoded path  /download/__ia_thumb/../../etc/passwd  normalises
+		// to /etc/passwd which does not match */__ia_thumb → blocked
+		expect(isTargetAllowed(
+			'https://archive.org/download/x/__ia_thumb%2f..%2f..%2fetc%2fpasswd',
+			rules,
+		)).toBe(false);
+		// A path that genuinely contains %2f (not traversal) should still be
+		// matched correctly — after decoding, /__ia_thumb/ is still present.
+		expect(isTargetAllowed(
+			'https://archive.org/download/x/__ia_thumb%2fsubdir%2ffile.txt',
+			rules,
+		)).toBe(true);
+	});
+
+	it('returns false for invalid target URL', () => {
+		expect(isTargetAllowed('not-a-url', [{ hostname: 'example.com', pathPatterns: [] }])).toBe(false);
+	});
+
+	it('supports *. wildcard in hostname', () => {
+		const rules = [{ hostname: '*.archive.org', pathPatterns: ['*/__ia_thumb'] }];
+		expect(isTargetAllowed('https://sub.archive.org/download/__ia_thumb.jpg', rules)).toBe(true);
+		expect(isTargetAllowed('https://archive.org/download/__ia_thumb.jpg', rules)).toBe(false);
+	});
+
+	it('anchors pattern without leading * (exact path match)', () => {
+		const rules = [
+			{ hostname: 'archive.org', pathPatterns: ['__ia_thumb.jpg'] },
+		];
+		// Exact match at root passes
+		expect(isTargetAllowed('https://archive.org/__ia_thumb.jpg', rules)).toBe(true);
+		// Subdirectory path fails
+		expect(isTargetAllowed('https://archive.org/download/__ia_thumb.jpg', rules)).toBe(false);
+	});
+
+	it('matches multiple rules (any rule can allow)', () => {
+		const rules = [
+			{ hostname: 'example.com', pathPatterns: [] },
+			{ hostname: 'archive.org', pathPatterns: ['*/__ia_thumb'] },
+		];
+		expect(isTargetAllowed('https://example.com/anything', rules)).toBe(true);
+		expect(isTargetAllowed('https://archive.org/download/__ia_thumb.jpg', rules)).toBe(true);
+		expect(isTargetAllowed('https://other.com/path', rules)).toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// isPrivateHostname
+// ---------------------------------------------------------------------------
+describe('isPrivateHostname', () => {
+	// --- IPv4 private ranges ---
+	it('detects 10.0.0.0/8 as private', () => {
+		expect(isPrivateHostname('10.0.0.1')).toBe(true);
+		expect(isPrivateHostname('10.255.255.255')).toBe(true);
+	});
+
+	it('detects 172.16.0.0/12 as private', () => {
+		expect(isPrivateHostname('172.16.0.1')).toBe(true);
+		expect(isPrivateHostname('172.31.255.255')).toBe(true);
+		expect(isPrivateHostname('172.32.0.1')).toBe(false);
+	});
+
+	it('detects 192.168.0.0/16 as private', () => {
+		expect(isPrivateHostname('192.168.0.1')).toBe(true);
+		expect(isPrivateHostname('192.168.255.255')).toBe(true);
+		expect(isPrivateHostname('192.169.0.1')).toBe(false);
+	});
+
+	it('detects 127.0.0.0/8 (loopback) as private', () => {
+		expect(isPrivateHostname('127.0.0.1')).toBe(true);
+		expect(isPrivateHostname('127.255.255.255')).toBe(true);
+	});
+
+	it('detects 169.254.0.0/16 (link-local) as private', () => {
+		expect(isPrivateHostname('169.254.0.1')).toBe(true);
+		expect(isPrivateHostname('169.254.255.255')).toBe(true);
+		expect(isPrivateHostname('169.255.0.1')).toBe(false);
+	});
+
+	it('detects 0.0.0.0/8 as private', () => {
+		expect(isPrivateHostname('0.0.0.0')).toBe(true);
+		expect(isPrivateHostname('0.255.255.255')).toBe(true);
+	});
+
+	// --- Public IPs ---
+	it('allows public IPv4 addresses', () => {
+		expect(isPrivateHostname('example.com')).toBe(false);
+		expect(isPrivateHostname('93.184.216.34')).toBe(false);
+		expect(isPrivateHostname('8.8.8.8')).toBe(false);
+	});
+
+	// --- Internal hostnames ---
+	it('detects localhost as private', () => {
+		expect(isPrivateHostname('localhost')).toBe(true);
+		expect(isPrivateHostname('localhost.localdomain')).toBe(true);
+	});
+
+	it('detects .local / .internal / .localdomain suffixes as private', () => {
+		expect(isPrivateHostname('myhost.local')).toBe(true);
+		expect(isPrivateHostname('internal.service.internal')).toBe(true);
+		expect(isPrivateHostname('server.localdomain')).toBe(true);
+		expect(isPrivateHostname('public.com')).toBe(false);
+	});
+
+	// --- IPv6 ---
+	it('detects IPv6 loopback (::1) as private', () => {
+		expect(isPrivateHostname('::1')).toBe(true);
+		expect(isPrivateHostname('[::1]')).toBe(true);
+	});
+
+	it('detects IPv6 link-local (fe80::/10) as private', () => {
+		expect(isPrivateHostname('fe80::1')).toBe(true);
+		expect(isPrivateHostname('fe80::abcd:1234')).toBe(true);
+	});
+
+	it('detects IPv6 unique local (fc00::/7) as private', () => {
+		expect(isPrivateHostname('fc00::1')).toBe(true);
+		expect(isPrivateHostname('fd00::1')).toBe(true);
+		expect(isPrivateHostname('fd12:3456::1')).toBe(true);
+	});
+
+	it('detects IPv4-mapped IPv6 private addresses', () => {
+		expect(isPrivateHostname('::ffff:127.0.0.1')).toBe(true);
+		expect(isPrivateHostname('::ffff:10.0.0.1')).toBe(true);
+		expect(isPrivateHostname('::ffff:8.8.8.8')).toBe(false);
+	});
+
+	// --- Invalid IPs ---
+	it('returns false for invalid IPv4', () => {
+		expect(isPrivateHostname('999.999.999.999')).toBe(false);
+		expect(isPrivateHostname('256.0.0.1')).toBe(false);
 	});
 });

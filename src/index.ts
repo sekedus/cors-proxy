@@ -17,7 +17,9 @@ import {
 	extractHostname,
 	getRequestOrigin,
 	isInList,
+	isPrivateHostname,
 	isSameOriginRequest,
+	isTargetAllowed,
 	parseHeaderOverrideHeader,
 	parseHeaderQueryParams,
 } from './utils';
@@ -124,9 +126,13 @@ export function handlePreflight(request: Request, config: ProxyConfig, isDev: bo
 		const url = new URL(request.url);
 		const targetUrl = resolveTargetUrl(url);
 		if (targetUrl) {
+			if (!isTargetAllowed(targetUrl, config.allowedTarget)) {
+				return preflightError(403, 'Target is not allowed');
+			}
+			// SSRF protection: block private/reserved IPs
 			try {
 				const targetHost = new URL(targetUrl).hostname.toLowerCase();
-				if (config.allowedTarget.length > 0 && !isInList(config.allowedTarget, targetHost)) {
+				if (isPrivateHostname(targetHost)) {
 					return preflightError(403, 'Target is not allowed');
 				}
 			} catch {
@@ -215,36 +221,20 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 		});
 	}
 
-	// ---- Body size limit ----
-	// Check via Content-Length header (fast path – early rejection without reading body).
-	// Always read the body afterward to verify the actual size, since Content-Length
-	// can be falsified (e.g. small Content-Length with large chunked body).
-	let bodyBuffer: ArrayBuffer | null = null;
-	if (config.maxBodySize > 0) {
-		const contentLength = request.headers.get('Content-Length');
-		if (contentLength) {
-			const size = parseInt(contentLength, 10);
-			if (!isNaN(size) && size > config.maxBodySize) {
-				return new Response(JSON.stringify({ error: 'Request body exceeds maximum allowed size' }), {
-					status: 413,
-					headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-				});
-			}
-		}
-		if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
-			// Read body to verify actual size (catches chunked encoding bypass)
-			bodyBuffer = await request.arrayBuffer();
-			if (bodyBuffer.byteLength > config.maxBodySize) {
-				return new Response(JSON.stringify({ error: 'Request body exceeds maximum allowed size' }), {
-					status: 413,
-					headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-				});
-			}
-		}
+	// ---- SSRF protection: block private / reserved IPs ----
+	// Defence-in-depth against Server-Side Request Forgery.  This mirrors the
+	// Cloudflare Workers runtime's own private-IP blocking but adds a layer
+	// that works regardless of deployment environment.
+	if (!isDev && isPrivateHostname(targetHost)) {
+		return new Response(JSON.stringify({ error: 'Target is not allowed' }), {
+			status: 403,
+			headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+		});
 	}
 
 	// ---- Access control ----
-	// Capture the client's origin once and reuse it for both access control and CORS response headers.
+	// Run BEFORE reading the request body so that blocked origins / targets
+	// are rejected early without consuming memory on body parsing.
 	const originUrl = getRequestOrigin(request);
 	const isSameOrigin = isSameOriginRequest(request);
 
@@ -277,13 +267,11 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 		}
 
 		// allowed_target: if list is non-empty, target must be in it
-		if (config.allowedTarget.length > 0) {
-			if (!isInList(config.allowedTarget, targetHost)) {
-				return new Response(JSON.stringify({ error: 'Target is not allowed' }), {
-					status: 403,
-					headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-				});
-			}
+		if (!isTargetAllowed(targetUrl, config.allowedTarget)) {
+			return new Response(JSON.stringify({ error: 'Target is not allowed' }), {
+				status: 403,
+				headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+			});
 		}
 
 		// require_header: client must include these headers
@@ -300,6 +288,34 @@ export async function handleProxyRequest(request: Request, config: ProxyConfig, 
 						},
 					);
 				}
+			}
+		}
+	}
+
+	// ---- Body size limit ----
+	// Check via Content-Length header (fast path – early rejection without reading body).
+	// Always read the body afterward to verify the actual size, since Content-Length
+	// can be falsified (e.g. small Content-Length with large chunked body).
+	let bodyBuffer: ArrayBuffer | null = null;
+	if (config.maxBodySize > 0) {
+		const contentLength = request.headers.get('Content-Length');
+		if (contentLength) {
+			const size = parseInt(contentLength, 10);
+			if (!isNaN(size) && size > config.maxBodySize) {
+				return new Response(JSON.stringify({ error: 'Request body exceeds maximum allowed size' }), {
+					status: 413,
+					headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+				});
+			}
+		}
+		if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
+			// Read body to verify actual size (catches chunked encoding bypass)
+			bodyBuffer = await request.arrayBuffer();
+			if (bodyBuffer.byteLength > config.maxBodySize) {
+				return new Response(JSON.stringify({ error: 'Request body exceeds maximum allowed size' }), {
+					status: 413,
+					headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+				});
 			}
 		}
 	}

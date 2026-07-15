@@ -4,11 +4,32 @@
 
 import { getDomain } from 'tldts';
 
+/**
+ * A rule for matching a target URL.
+ *
+ * If pathPatterns is empty, the rule matches any path on the given hostname
+ * (hostname-only). If pathPatterns is non-empty, the rule additionally
+ * requires the URL pathname to match at least one of the patterns.
+ *
+ * Path patterns use * as a wildcard that matches any sequence of characters
+ * (including /). Multiple patterns can be separated by | in the config
+ * string, e.g.  archive.org/asterisk/__ia_thumb|_page_numbers.json|_archive.torrent.
+ */
+export interface TargetRule {
+	/** Hostname pattern, e.g. "archive.org" or "*.archive.org". */
+	hostname: string;
+	/**
+	 * Path glob patterns using * as a multi-character wildcard.
+	 * Empty array means "match any path" (hostname-only rule).
+	 */
+	pathPatterns: string[];
+}
+
 export interface ProxyConfig {
 	/** Comma-separated list of allowed origins (Origin header). Empty = allow all. */
 	allowedSite: string[];
-	/** Comma-separated list of allowed target hosts. Empty = allow all. */
-	allowedTarget: string[];
+	/** List of allowed target rules. Empty = allow all. */
+	allowedTarget: TargetRule[];
 	/** Comma-separated list of blacklisted origins. */
 	blacklistSite: string[];
 	/** Comma-separated list of header names to remove from the outbound request. */
@@ -98,6 +119,68 @@ function parseByteSize(value: string | undefined): number {
 }
 
 /**
+ * Parse a comma-separated list of target rules (ALLOWED_TARGET).
+ *
+ * Each entry can be:
+ *   - A plain hostname (existing behaviour): example.com
+ *   - A hostname with path patterns:      archive.org/asterisk/__ia_thumb
+ *   - Multiple path patterns (pipe-sep.): archive.org/asterisk/__ia_thumb|_page_numbers.json|_archive.torrent
+ *
+ * If the entry starts with *. (wildcard), the suffix is validated against
+ * public suffixes (same logic as parseHostnames).
+ */
+function parseTargetRules(value: string | undefined): TargetRule[] {
+	if (!value || value.trim() === '') return [];
+	const result: TargetRule[] = [];
+
+	for (const entry of parseList(value)) {
+		let hostnamePart: string;
+		let pathPart: string | undefined;
+
+		if (entry.includes('://')) {
+			// Full URL → use URL parser to extract hostname and pathname
+			try {
+				const url = new URL(entry);
+				hostnamePart = url.hostname.toLowerCase();
+				const pn = url.pathname;
+				pathPart = pn.startsWith('/') ? pn.slice(1) : pn;
+			} catch {
+				continue;
+			}
+		} else {
+			const slashIdx = entry.indexOf('/');
+			if (slashIdx === -1) {
+				hostnamePart = entry;
+				pathPart = undefined;
+			} else {
+				hostnamePart = entry.substring(0, slashIdx);
+				pathPart = entry.substring(slashIdx + 1);
+			}
+		}
+
+		// Validate wildcard hostnames targeting a public suffix (e.g. "*.com", "*.co.uk")
+		if (hostnamePart.startsWith('*.')) {
+			const suffix = hostnamePart.slice(2);
+			if (!suffix || getDomain(suffix) === null) {
+				continue;
+			}
+		}
+
+		// Parse pipe-separated path patterns
+		let pathPatterns: string[];
+		if (pathPart === undefined || pathPart === '') {
+			pathPatterns = [];
+		} else {
+			pathPatterns = pathPart.split('|').map((p) => p.trim()).filter((p) => p.length > 0);
+		}
+
+		result.push({ hostname: hostnamePart, pathPatterns });
+	}
+
+	return result;
+}
+
+/**
  * Build the proxy configuration from environment variables.
  */
 export function getConfig(env: Env): ProxyConfig {
@@ -114,7 +197,7 @@ export function getConfig(env: Env): ProxyConfig {
 
 	return {
 		allowedSite,
-		allowedTarget: parseHostnames(env.ALLOWED_TARGET),
+		allowedTarget: parseTargetRules(env.ALLOWED_TARGET),
 		blacklistSite,
 		removeHeaders: parseList(env.REMOVE_HEADERS),
 		requireHeader,
